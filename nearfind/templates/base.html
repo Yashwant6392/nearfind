@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "NearFind" }}</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+</head>
+<body{% if session.get("user_id") %} data-logged-in="true"{% endif %}>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') }}"><span>Near</span>Find</a>
+    <nav>
+      {% if session.get("user_id") %}
+        {% if session.get("role") == "seeker" %}
+          <a href="{{ url_for('seeker_dashboard') }}">Dashboard</a>
+          <a class="nav-cta" href="{{ url_for('post_query_page') }}">Find a Product</a>
+        {% else %}
+          <a href="{{ url_for('provider_dashboard') }}">Demand Map</a>
+        {% endif %}
+        <form class="logout-form" method="post" action="{{ url_for('logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit">Logout</button>
+        </form>
+      {% else %}
+        <a href="{{ url_for('login') }}">Login</a>
+        <a class="nav-cta" href="{{ url_for('signup') }}">Get Started</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <section class="flash-stack">
+          {% for category, message in messages %}
+            <div class="toast {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </section>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

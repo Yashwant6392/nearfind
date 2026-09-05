@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard-head compact">
+  <div>
+    <p class="eyebrow">Live provider responses</p>
+    <h1>{{ query.item_name }}</h1>
+    <p>{{ query.description }}</p>
+  </div>
+  <button class="btn primary" id="resolveBtn" data-query-id="{{ query.id }}" {% if query.status != "matched" %}hidden{% endif %}>Mark Resolved</button>
+</section>
+
+<section class="request-summary">
+  <div>
+    <span class="status-chip {{ query.status }}">{{ query.status }}</span>
+    <p>{{ query.urgency|replace("_", " ") }} · {{ query.radius_km }} km radius · {{ query.location }}</p>
+  </div>
+  {% if query.image_url %}<img src="{{ query.image_url }}" alt="Your product reference">{% endif %}
+</section>
+
+<section class="map-layout">
+  <div id="seekerMap" class="map" data-query-id="{{ query.id }}" data-lat="{{ query.lat }}" data-lng="{{ query.lng }}"></div>
+  <aside>
+    <h2 id="providerCount">Waiting for responses...</h2>
+    <div id="responsesList" class="response-list"></div>
+  </aside>
+</section>
+
+<template id="responseTemplate">
+  <article class="response-card">
+    <div class="response-head">
+      <div>
+        <h3 data-name></h3>
+        <p data-meta></p>
+      </div>
+      <span class="status-chip" data-status></span>
+    </div>
+    <p data-message></p>
+    <strong data-price></strong>
+    <div class="comparison">
+      <figure>
+        <figcaption>Your Reference</figcaption>
+        <div class="image-slot" data-reference></div>
+      </figure>
+      <figure>
+        <figcaption>Provider's Product</figcaption>
+        <div class="image-slot" data-product></div>
+      </figure>
+    </div>
+    <div class="actions">
+      <button class="btn small primary" data-select>Select Provider</button>
+      <a class="btn small" data-call>Call</a>
+      <a class="btn small" data-whatsapp target="_blank" rel="noopener">WhatsApp</a>
+      <a class="btn small" data-directions target="_blank" rel="noopener">Get Directions</a>
+    </div>
+  </article>
+</template>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.NEARFIND_QUERY = {{ query|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/seeker-map.js') }}"></script>
+{% endblock %}

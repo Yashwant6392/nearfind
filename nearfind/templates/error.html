@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow">
+  <div class="panel">
+    <p class="eyebrow">NearFind</p>
+    <h1>Something needs attention</h1>
+    <p>{{ message }}</p>
+    <a class="btn primary" href="{{ url_for('index') }}">Go Home</a>
+  </div>
+</section>
+{% endblock %}

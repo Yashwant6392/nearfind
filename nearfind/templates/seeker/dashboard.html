@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard-head">
+  <div>
+    <p class="eyebrow">FIND · REQUEST · COMPARE · MATCH</p>
+    <h1>What do you need urgently?</h1>
+  </div>
+  <a class="btn primary" href="{{ url_for('post_query_page') }}">Find a Product</a>
+</section>
+
+{% for status, title in [("open", "Active Requests"), ("matched", "Matched"), ("resolved", "Completed"), ("expired", "Expired")] %}
+<section class="section-block">
+  <h2>{{ title }}</h2>
+  {% if buckets.get(status) %}
+    <div class="card-grid">
+      {% for query in buckets[status] %}
+      <article class="product-card">
+        {% if query.image_url %}<img src="{{ query.image_url }}" alt="Reference image for {{ query.item_name }}">{% endif %}
+        <div>
+          <span class="status-chip {{ query.status }}">{{ query.status }}</span>
+          <h3>{{ query.item_name }}</h3>
+          <p>{{ query.category }} · {{ query.urgency|replace("_", " ") }}</p>
+          <p class="muted">{{ counts.get(query.id, 0) }} providers found</p>
+          <a class="btn small" href="{{ url_for('seeker_responses_page', query_id=query.id) }}">View Responses</a>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No {{ title|lower }} yet.</div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow">
+  <form class="panel form-card" method="post" action="{{ url_for('auth_login') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="eyebrow">Welcome back</p>
+    <h1>Login to NearFind</h1>
+    <label>Email<input name="email" type="email" autocomplete="email" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Login</button>
+    <p class="muted">New here? <a href="{{ url_for('signup') }}">Create an account</a></p>
+  </form>
+</section>
+{% endblock %}

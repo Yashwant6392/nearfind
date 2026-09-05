@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow wide">
+  <form class="panel form-card" method="post" action="{{ url_for('query_respond') }}" enctype="multipart/form-data" data-upload-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="eyebrow">Confirm availability</p>
+    <h1>I have {{ query.item_name }}</h1>
+    <div class="request-facts">
+      <span>{{ distance }} km away</span>
+      <span>{{ query.category }}</span>
+      <span>{{ query.urgency|replace("_", " ") }}</span>
+      <span>{{ query.location }}</span>
+    </div>
+    <p>{{ query.description }}</p>
+    {% if query.image_url %}
+      <div class="request-summary"><img src="{{ query.image_url }}" alt="Reference image"><p>Match your product image against this reference.</p></div>
+    {% endif %}
+    <input type="hidden" name="query_id" value="{{ query.id }}">
+    {% if existing and existing.image_url %}<input type="hidden" name="existing_image_url" value="{{ existing.image_url }}">{% endif %}
+    <label>Price<input name="price" value="{{ existing.price if existing else '' }}" placeholder="Rs 850" required></label>
+    <label>Message<textarea name="message" rows="4" required>{{ existing.message if existing else '' }}</textarea></label>
+    <label class="upload-zone">
+      <input name="image" type="file" accept="image/jpeg,image/png,image/webp">
+      <span>Upload actual product image</span>
+      <strong>Drag & drop image here</strong>
+      <small>or click to browse</small>
+      <img class="preview" alt="">
+      <button class="remove-image" type="button">Remove image</button>
+    </label>
+    <button class="btn primary" type="submit">Send Response</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow wide">
+  <form class="panel form-card" method="post" action="{{ url_for('post_query') }}" enctype="multipart/form-data" data-location-form data-upload-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="eyebrow">Find it nearby</p>
+    <h1>Post a product request</h1>
+    <div class="grid two">
+      <label>Product name<input name="item_name" placeholder="Dell 65W USB-C charger" required></label>
+      <label>Category<input name="category" placeholder="Electronics" required></label>
+      <label class="full">Description<textarea name="description" rows="4" required></textarea></label>
+      <label>Search location<input name="location" placeholder="Your area or landmark" required></label>
+      <label>Radius
+        <select name="radius_km">
+          <option value="2">2 km</option>
+          <option value="5" selected>5 km</option>
+          <option value="10">10 km</option>
+          <option value="25">25 km</option>
+        </select>
+      </label>
+      <label>Urgency
+        <select name="urgency">
+          <option value="normal">Normal</option>
+          <option value="urgent" selected>Urgent</option>
+          <option value="very_urgent">Very urgent</option>
+        </select>
+      </label>
+      <label>Expires in
+        <select name="expiration">
+          <option value="2">2 hours</option>
+          <option value="6" selected>6 hours</option>
+          <option value="12">12 hours</option>
+          <option value="24">24 hours</option>
+        </select>
+      </label>
+      <label>Latitude<input name="lat" inputmode="decimal" required></label>
+      <label>Longitude<input name="lng" inputmode="decimal" required></label>
+    </div>
+    <label class="upload-zone">
+      <input name="image" type="file" accept="image/jpeg,image/png,image/webp">
+      <span>Upload reference image</span>
+      <strong>Drag & drop image here</strong>
+      <small>or click to browse</small>
+      <img class="preview" alt="">
+      <button class="remove-image" type="button">Remove image</button>
+    </label>
+    <div class="notice" id="locationStatus">Allow location or enter coordinates manually.</div>
+    <button class="btn primary" type="submit">Find It</button>
+  </form>
+</section>
+{% endblock %}

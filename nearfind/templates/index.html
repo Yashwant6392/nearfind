@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Hyperlocal product search</p>
+    <h1>Need something nearby?<br>Find who has it right now.</h1>
+    <p>Post what you need. Nearby shops and providers respond. Compare availability and go directly to the right place.</p>
+    <div class="actions">
+      <a class="btn primary" href="{{ url_for('signup') }}?role=seeker">Find a Product</a>
+      <a class="btn ghost" href="{{ url_for('signup') }}?role=provider">Become a Provider</a>
+    </div>
+  </div>
+  <div class="map-preview" aria-label="NearFind live map preview">
+    <div class="preview-grid"></div>
+    <span class="marker blue"></span>
+    <span class="marker yellow pulse one"></span>
+    <span class="marker green two"></span>
+    <div class="preview-card">
+      <strong>Dell 65W USB-C Charger</strong>
+      <span>1.4 km away</span>
+      <span class="price">Rs 850 available</span>
+    </div>
+  </div>
+</section>
+
+<section class="steps">
+  <article><span>1</span><h2>Post what you need</h2><p>Add a reference image, urgency and search radius.</p></article>
+  <article><span>2</span><h2>Nearby providers respond</h2><p>Open requests appear on a live provider map.</p></article>
+  <article><span>3</span><h2>Compare, choose and go</h2><p>Select a provider, call, WhatsApp or get directions.</p></article>
+</section>
+{% endblock %}

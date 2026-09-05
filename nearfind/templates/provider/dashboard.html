@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="provider-shell">
+  <aside class="provider-sidebar">
+    <p class="eyebrow">Provider console</p>
+    <h1>{{ profile.business_name or profile.name }}</h1>
+    <dl>
+      <div><dt>Type</dt><dd>{{ profile.provider_type or "provider" }}</dd></div>
+      <div><dt>Phone</dt><dd>{{ profile.phone }}</dd></div>
+      <div><dt>Address</dt><dd>{{ profile.address }}</dd></div>
+      <div><dt>Location</dt><dd id="providerLocationText">{{ profile.lat or "Not set" }}, {{ profile.lng or "Not set" }}</dd></div>
+    </dl>
+    <div class="metric-grid compact">
+      <div><strong>{{ summary.total }}</strong><span>Total responses</span></div>
+      <div><strong>{{ summary.selected }}</strong><span>Selected</span></div>
+    </div>
+    <button class="btn primary" id="refreshRequests" type="button">Refresh Requests</button>
+  </aside>
+
+  <div class="provider-main">
+    <section class="dashboard-head compact">
+      <div>
+        <p class="eyebrow">NEARBY DEMAND · AVAILABLE REQUESTS · DISTANCE · OPPORTUNITIES</p>
+        <h1>Nearby product demand</h1>
+        <p>Real open requests within each seeker radius, calculated from your saved provider location.</p>
+      </div>
+    </section>
+
+    <section class="filters panel slim">
+      <label>Radius
+        <select id="radiusFilter">
+          <option value="2">2 km</option>
+          <option value="5" selected>5 km</option>
+          <option value="10">10 km</option>
+          <option value="25">25 km</option>
+          <option value="50">50 km</option>
+        </select>
+      </label>
+      <label>Category
+        <input id="categoryFilter" placeholder="Any category">
+      </label>
+      <label>Sort
+        <select id="sortFilter">
+          <option value="distance">Distance</option>
+          <option value="urgency">Urgency</option>
+        </select>
+      </label>
+      <span id="demandCount" class="notice">Loading nearby requests...</span>
+    </section>
+
+    <section class="provider-layout">
+      <div id="providerMap" class="map" data-lat="{{ profile.lat or '' }}" data-lng="{{ profile.lng or '' }}"></div>
+      <aside class="provider-results">
+        <div id="queryCards" class="query-list"></div>
+        <div id="queryDetail" class="query-detail empty">Select a request card or marker to inspect details.</div>
+      </aside>
+    </section>
+  </div>
+</section>
+
+<template id="queryTemplate">
+  <article class="query-card">
+    <div class="response-head">
+      <div>
+        <h3 data-title></h3>
+        <p data-meta></p>
+      </div>
+      <span class="status-chip" data-urgency></span>
+    </div>
+    <p class="muted" data-location></p>
+    <p data-description></p>
+    <div class="thumb" data-image></div>
+    <div class="query-card-foot">
+      <span data-expiration></span>
+      <a class="btn small primary" data-respond>I Have It</a>
+    </div>
+  </article>
+</template>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/provider-map.js') }}"></script>
+{% endblock %}
