@@ -90,6 +90,7 @@ Set `FLASK_ENV=production` and use a long random `SECRET_KEY`. Do not run Flask'
    - `response-images`
 6. Add storage policies allowing public reads for both buckets.
 7. Add authenticated insert policies for both buckets, or rely on the Flask server using the service-role key.
+8. Run [migrations/003_live_location.sql](migrations/003_live_location.sql) after the chat migration.
 
 For production Auth, configure custom SMTP, choose an explicit email-confirmation policy, and set Supabase Auth rate limits appropriate to expected traffic. The application does not bypass hosted Auth rate limits or create users through the Admin API.
 

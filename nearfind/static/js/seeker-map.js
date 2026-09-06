@@ -15,6 +15,9 @@
   let fetchingResponses = false;
   let resolving = false;
   let pollTimer;
+  let locationPollTimer;
+  let selectedResponseId;
+  let liveProviderLocation;
 
   const map = L.map(mapEl).setView([query.lat, query.lng], 13);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -87,6 +90,44 @@
       clearInterval(pollTimer);
       pollTimer = undefined;
     }
+    if (terminalStatuses.has(query.status) && locationPollTimer) {
+      clearInterval(locationPollTimer);
+      locationPollTimer = undefined;
+    }
+  }
+
+  async function fetchSelectedProviderLocation() {
+    if (!selectedResponseId || terminalStatuses.has(query.status) || document.hidden) return;
+    const status = responsesList.querySelector(`[data-response-id="${selectedResponseId}"] [data-location-status]`);
+    try {
+      const response = await fetch(`/query/${query.id}/provider-location`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Location unavailable");
+      liveProviderLocation = payload.data;
+      const marker = markers.get(selectedResponseId);
+      if (!liveProviderLocation) {
+        marker?.remove();
+        markers.delete(selectedResponseId);
+        if (status) {
+          status.hidden = false;
+          status.textContent = "Provider location unavailable";
+        }
+        return;
+      }
+      if (marker) {
+        marker.setLatLng([liveProviderLocation.lat, liveProviderLocation.lng]);
+      }
+      if (status) {
+        status.hidden = false;
+        const age = Math.max(0, Math.round((Date.now() - new Date(liveProviderLocation.updated_at).getTime()) / 1000));
+        status.textContent = `Location available · ${liveProviderLocation.distance_km ?? "?"} km away · updated ${age} sec ago`;
+      }
+    } catch (error) {
+      if (status) {
+        status.hidden = false;
+        status.textContent = "Provider location unavailable";
+      }
+    }
   }
 
   function showListMessage(message, kind = "empty") {
@@ -155,10 +196,14 @@
     const whatsapp = node.querySelector("[data-whatsapp]");
     const directions = node.querySelector("[data-directions]");
     const chat = node.querySelector("[data-chat]");
+    const locationStatus = node.querySelector("[data-location-status]");
     call.href = urls.call || "#";
     whatsapp.href = urls.whatsapp || "#";
     directions.href = urls.directions || "#";
     if (response.status === "selected") {
+      node.dataset.responseId = response.id;
+      locationStatus.hidden = false;
+      locationStatus.textContent = "Provider location unavailable";
       chat.href = `/chat/response/${response.id}`;
       chat.hidden = false;
     }
@@ -199,6 +244,9 @@
 
   function renderResponses(responses) {
     responsesList.replaceChildren();
+    const selected = responses.find((response) => response.status === "selected");
+    selectedResponseId = selected?.id;
+    liveProviderLocation = null;
     providerCount.textContent = responses.length === 0
       ? "Waiting for responses..."
       : responses.length === 1 ? "1 provider found" : `${responses.length} providers found`;
@@ -210,6 +258,7 @@
     }
     responses.forEach((response) => responsesList.appendChild(renderResponse(response)));
     updateMarkers(responses);
+    fetchSelectedProviderLocation();
     syncResolveButton();
   }
 
@@ -308,8 +357,16 @@
     }
     fetchResponses();
   }, 3000);
+  locationPollTimer = setInterval(fetchSelectedProviderLocation, 5000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      fetchResponses({ force: true });
+      fetchSelectedProviderLocation();
+    }
+  });
   window.addEventListener("pagehide", () => {
     if (pollTimer) clearInterval(pollTimer);
+    if (locationPollTimer) clearInterval(locationPollTimer);
     pollTimer = undefined;
   }, { once: true });
 })();

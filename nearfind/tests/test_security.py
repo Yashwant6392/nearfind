@@ -613,6 +613,107 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('send.textContent = "Please wait..."', script)
         self.assertIn("form.dataset.submitting = \"false\"", script)
 
+    def test_provider_can_update_only_own_latest_location(self):
+        provider_id = "22222222-2222-4222-8222-222222222222"
+        self.login_as(role="provider", user_id=provider_id)
+        location = FakeRowsTable(single=None)
+        with patch.object(nearfind, "current_profile", return_value={"role": "provider", "is_active": True}), patch.object(
+            nearfind, "table", return_value=location
+        ):
+            response = self.client.post(
+                "/location/update",
+                json={"lat": 26.761, "lng": 83.374, "accuracy_m": 12, "sharing_enabled": True},
+                headers={"X-CSRFToken": "known-csrf-token"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(location.inserted[0]["provider_id"], provider_id)
+        self.assertTrue(location.inserted[0]["sharing_enabled"])
+
+    def test_provider_location_update_reuses_existing_row(self):
+        provider_id = "22222222-2222-4222-8222-222222222222"
+        self.login_as(role="provider", user_id=provider_id)
+        location = FakeRowsTable(single={"provider_id": provider_id})
+        with patch.object(nearfind, "current_profile", return_value={"role": "provider", "is_active": True}), patch.object(
+            nearfind, "table", return_value=location
+        ):
+            response = self.client.post(
+                "/location/update",
+                json={"lat": 26.762, "lng": 83.375, "accuracy_m": None, "sharing_enabled": True},
+                headers={"X-CSRFToken": "known-csrf-token"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(location.inserted, [])
+        self.assertEqual(location.updated[0]["provider_id"], provider_id)
+
+    def test_location_update_requires_provider_authentication_and_role(self):
+        self.assertEqual(self.client.post("/location/update", json={"lat": 26.7, "lng": 83.3}).status_code, 403)
+        self.login_as(role="seeker")
+        response = self.client.post(
+            "/location/update",
+            json={"lat": 26.7, "lng": 83.3},
+            headers={"X-CSRFToken": "known-csrf-token"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_location_update_rejects_invalid_coordinates_and_accuracy(self):
+        self.login_as(role="provider")
+        with patch.object(nearfind, "current_profile", return_value={"role": "provider", "is_active": True}), patch.object(
+            nearfind, "table"
+        ) as table_mock:
+            invalid_lat = self.client.post("/location/update", json={"lat": 91, "lng": 83.3}, headers={"X-CSRFToken": "known-csrf-token"})
+            invalid_lng = self.client.post("/location/update", json={"lat": 26.7, "lng": 181}, headers={"X-CSRFToken": "known-csrf-token"})
+            invalid_accuracy = self.client.post("/location/update", json={"lat": 26.7, "lng": 83.3, "accuracy_m": -1}, headers={"X-CSRFToken": "known-csrf-token"})
+        self.assertEqual(invalid_lat.status_code, 400)
+        self.assertEqual(invalid_lng.status_code, 400)
+        self.assertEqual(invalid_accuracy.status_code, 400)
+        table_mock.assert_not_called()
+
+    def test_seeker_reads_only_selected_provider_location_for_owned_matched_query(self):
+        query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        self.login_as(role="seeker", user_id="11111111-1111-4111-8111-111111111111")
+        query = {"id": query_id, "seeker_id": "11111111-1111-4111-8111-111111111111", "status": "matched", "lat": 26.7606, "lng": 83.3732}
+        selected = {"provider_id": "22222222-2222-4222-8222-222222222222"}
+        location = {"lat": 26.761, "lng": 83.374, "accuracy_m": 10, "updated_at": "2026-09-07T10:00:00Z", "sharing_enabled": True}
+        with patch.object(nearfind, "require_query_owner", return_value=query), patch.object(
+            nearfind, "table", side_effect=[FakeRowsTable(single=selected), FakeRowsTable(single=location)]
+        ):
+            response = self.client.get(f"/query/{query_id}/provider-location")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["data"]["lat"], location["lat"])
+        self.assertIn("distance_km", response.json["data"])
+
+    def test_resolved_query_does_not_expose_provider_location(self):
+        self.login_as(role="seeker", user_id="11111111-1111-4111-8111-111111111111")
+        query = {"id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "status": "resolved"}
+        with patch.object(nearfind, "require_query_owner", return_value=query), patch.object(nearfind, "table") as table_mock:
+            response = self.client.get("/query/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/provider-location")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json["data"])
+        table_mock.assert_not_called()
+
+    def test_disabled_provider_sharing_returns_no_location(self):
+        query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        self.login_as(role="seeker", user_id="11111111-1111-4111-8111-111111111111")
+        query = {"id": query_id, "seeker_id": "11111111-1111-4111-8111-111111111111", "status": "matched", "lat": 26.7606, "lng": 83.3732}
+        selected = {"provider_id": "22222222-2222-4222-8222-222222222222"}
+        location = {"lat": 26.761, "lng": 83.374, "accuracy_m": 10, "updated_at": "2026-09-07T10:00:00Z", "sharing_enabled": False}
+        with patch.object(nearfind, "require_query_owner", return_value=query), patch.object(
+            nearfind, "table", side_effect=[FakeRowsTable(single=selected), FakeRowsTable(single=location)]
+        ):
+            response = self.client.get(f"/query/{query_id}/provider-location")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json["data"])
+
+    def test_provider_location_stop_disables_sharing(self):
+        self.login_as(role="provider", user_id="22222222-2222-4222-8222-222222222222")
+        location = FakeRowsTable()
+        with patch.object(nearfind, "current_profile", return_value={"role": "provider", "is_active": True}), patch.object(
+            nearfind, "table", return_value=location
+        ):
+            response = self.client.post("/location/stop", headers={"X-CSRFToken": "known-csrf-token"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(location.updated[0]["sharing_enabled"], False)
+
     def test_conversation_identity_is_reused_for_selected_response(self):
         response_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
         rows = []

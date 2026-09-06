@@ -19,17 +19,17 @@ app.config.from_object(Config)
 logging.basicConfig(level=logging.INFO)
 
 
-def json_response(success=True, data=None, error=None, status=200):
+def json_response(success=True, data=None, error=None, status=200, preserve_none=False):
     payload = {"success": success}
     if success:
-        payload["data"] = data or {}
+        payload["data"] = data if preserve_none else (data or {})
     else:
         payload["error"] = error or "Something went wrong"
     return jsonify(payload), status
 
 
 def wants_json():
-    return request.path.startswith(("/query/", "/upload/", "/user/", "/notifications", "/chat/"))
+    return request.path.startswith(("/query/", "/upload/", "/user/", "/location/", "/notifications", "/chat/"))
 
 
 def csrf_token():
@@ -543,6 +543,56 @@ def update_location():
     return json_response(data={"lat": lat, "lng": lng})
 
 
+def parse_sharing_enabled(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return True
+    raise ValueError("sharing_enabled must be true or false")
+
+
+def validate_accuracy(value):
+    if value in {None, ""}:
+        return None
+    return coerce_float(value, "Accuracy", 0, 100000)
+
+
+@app.post("/location/update")
+@provider_required
+def update_provider_location():
+    provider = current_profile()
+    if not provider or provider.get("role") != "provider" or provider.get("is_active") is not True:
+        return json_response(False, error="Provider account is inactive", status=403)
+    data = parse_json_or_form()
+    lat = coerce_float(data.get("lat"), "Latitude", -90, 90)
+    lng = coerce_float(data.get("lng"), "Longitude", -180, 180)
+    accuracy_m = validate_accuracy(data.get("accuracy_m"))
+    sharing_enabled = parse_sharing_enabled(data.get("sharing_enabled"))
+    record = {
+        "provider_id": session["user_id"],
+        "lat": lat,
+        "lng": lng,
+        "accuracy_m": accuracy_m,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "sharing_enabled": sharing_enabled,
+    }
+    existing = table("provider_locations").select("provider_id").eq("provider_id", session["user_id"]).maybe_single().execute().data
+    if existing:
+        table("provider_locations").update(record).eq("provider_id", session["user_id"]).execute()
+    else:
+        table("provider_locations").insert(record).execute()
+    return json_response(data=record)
+
+
+@app.post("/location/stop")
+@provider_required
+def stop_provider_location():
+    table("provider_locations").update(
+        {"sharing_enabled": False, "updated_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("provider_id", session["user_id"]).execute()
+    return json_response(data={"sharing_enabled": False})
+
+
 @app.get("/seeker/dashboard")
 @seeker_required
 def seeker_dashboard():
@@ -799,6 +849,40 @@ def query_responses(query_id):
     return json_response(data={"query": query, "responses": responses})
 
 
+@app.get("/query/<query_id>/provider-location")
+@seeker_required
+def selected_provider_location(query_id):
+    query = require_query_owner(query_id)
+    if not query or query.get("status") != "matched":
+        return json_response(data=None, preserve_none=True)
+    selected = (
+        table("responses")
+        .select("provider_id")
+        .eq("query_id", query_id)
+        .eq("status", "selected")
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not selected:
+        return json_response(data=None, preserve_none=True)
+    location = (
+        table("provider_locations")
+        .select("lat,lng,accuracy_m,updated_at,sharing_enabled")
+        .eq("provider_id", selected["provider_id"])
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not location or location.get("sharing_enabled") is not True:
+        return json_response(data=None, preserve_none=True)
+    distance = None
+    if query.get("lat") is not None and query.get("lng") is not None:
+        distance = round(haversine(float(query["lat"]), float(query["lng"]), float(location["lat"]), float(location["lng"])), 2)
+    location["distance_km"] = distance
+    return json_response(data=location)
+
+
 @app.post("/query/select-provider")
 @seeker_required
 def select_provider():
@@ -851,9 +935,10 @@ def chat_page(conversation_id):
     conversation = get_conversation_member(conversation_id)
     if not conversation:
         return render_template("error.html", message="Conversation not found or access denied."), 404
+    query = get_query(conversation["query_id"]) or {}
     other_id = conversation["provider_id"] if session["user_id"] == conversation["seeker_id"] else conversation["seeker_id"]
     other = table("users").select("name,business_name,role").eq("id", other_id).maybe_single().execute().data or {}
-    return render_template("chat.html", conversation=conversation, other=other)
+    return render_template("chat.html", conversation=conversation, other=other, query=query)
 
 
 @app.get("/chat/<conversation_id>/messages")
@@ -871,7 +956,8 @@ def chat_messages(conversation_id):
         .data
         or []
     )
-    return json_response(data={"conversation": conversation, "messages": rows})
+    query = get_query(conversation["query_id"]) or {}
+    return json_response(data={"conversation": conversation, "messages": rows, "query_status": query.get("status")})
 
 
 @app.post("/chat/<conversation_id>/messages")

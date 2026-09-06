@@ -9,9 +9,73 @@
   const input = document.getElementById("chatInput");
   const send = document.getElementById("chatSend");
   const originalSendText = send.textContent;
+  const role = shell.dataset.role;
+  let queryStatus = shell.dataset.queryStatus;
+  const enableLocation = document.getElementById("enableLocationSharing");
+  const stopLocation = document.getElementById("stopLocationSharing");
+  const locationStatus = document.getElementById("locationShareStatus");
   let loading = false;
   let sending = false;
   let timer;
+  let locationWatch;
+  let sharing = false;
+  let lastSentAt = 0;
+  let lastPosition;
+
+  function setLocationStatus(message, enabled = sharing) {
+    if (locationStatus) locationStatus.textContent = message;
+    if (enableLocation) enableLocation.hidden = enabled;
+    if (stopLocation) stopLocation.hidden = !enabled;
+  }
+
+  async function sendLocation(position) {
+    const now = Date.now();
+    const next = { lat: position.coords.latitude, lng: position.coords.longitude, accuracy_m: position.coords.accuracy };
+    const moved = !lastPosition || Math.abs(next.lat - lastPosition.lat) > 0.00005 || Math.abs(next.lng - lastPosition.lng) > 0.00005;
+    if (now - lastSentAt < 10000 && !moved) return;
+    const response = await fetch("/location/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
+      body: JSON.stringify({ ...next, sharing_enabled: true }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to update location");
+    lastSentAt = now;
+    lastPosition = next;
+    setLocationStatus("Location Sharing: ON · Last updated: just now", true);
+  }
+
+  function stopLocationSharing() {
+    if (!sharing && !locationWatch) return;
+    if (locationWatch !== undefined) navigator.geolocation?.clearWatch(locationWatch);
+    locationWatch = undefined;
+    sharing = false;
+    setLocationStatus("Location sharing is off.", false);
+    fetch("/location/stop", {
+      method: "POST",
+      headers: { "X-CSRFToken": window.NearFindCSRFToken || "" },
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  function startLocationSharing() {
+    if (role !== "provider" || sharing || !navigator.geolocation) {
+      if (!navigator.geolocation) setLocationStatus("Location is unavailable in this browser.", false);
+      return;
+    }
+    sharing = true;
+    setLocationStatus("Requesting location permission...", true);
+    locationWatch = navigator.geolocation.watchPosition(
+      (position) => sendLocation(position).catch(() => setLocationStatus("Unable to update location.", true)),
+      (error) => {
+        sharing = false;
+        if (locationWatch !== undefined) navigator.geolocation.clearWatch(locationWatch);
+        locationWatch = undefined;
+        setLocationStatus(error.code === 1 ? "Location permission denied." : "Location unavailable.", false);
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+  }
 
   function render(messages) {
     messagesEl.replaceChildren();
@@ -42,6 +106,8 @@
       const response = await fetch(`/chat/${conversationId}/messages`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to load messages");
+      queryStatus = payload.data.query_status || queryStatus;
+      if (queryStatus === "resolved") stopLocationSharing();
       errorEl.hidden = true;
       render(payload.data.messages || []);
       await fetch(`/chat/${conversationId}/read`, {
@@ -91,6 +157,9 @@
     }
   });
 
+  enableLocation?.addEventListener("click", startLocationSharing);
+  stopLocation?.addEventListener("click", stopLocationSharing);
+
   const poll = () => {
     if (!document.hidden) loadMessages();
   };
@@ -99,5 +168,8 @@
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) loadMessages();
   });
-  window.addEventListener("pagehide", () => clearInterval(timer), { once: true });
+  window.addEventListener("pagehide", () => {
+    clearInterval(timer);
+    stopLocationSharing();
+  }, { once: true });
 })();

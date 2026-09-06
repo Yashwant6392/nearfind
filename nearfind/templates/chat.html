@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="chat-shell" data-conversation-id="{{ conversation.id }}" data-current-user="{{ session.user_id }}">
+<section class="chat-shell" data-conversation-id="{{ conversation.id }}" data-current-user="{{ session.user_id }}" data-role="{{ session.role }}" data-query-status="{{ query.status }}">
   <div class="chat-header">
     <a class="btn small" href="{{ url_for('seeker_dashboard' if session.role == 'seeker' else 'provider_dashboard') }}">Back</a>
     <div>
@@ -8,6 +8,13 @@
       <h1>{{ other.business_name or other.name or "NearFind contact" }}</h1>
     </div>
   </div>
+  {% if session.role == "provider" %}
+  <section class="location-controls" data-location-controls>
+    <p id="locationShareStatus" class="notice">Location sharing is off.</p>
+    <button class="btn small primary" type="button" id="enableLocationSharing">Enable Location Sharing</button>
+    <button class="btn small" type="button" id="stopLocationSharing" hidden>Stop Sharing</button>
+  </section>
+  {% endif %}
   <div id="chatMessages" class="chat-messages"><p class="empty">Loading messages...</p></div>
   <p id="chatError" class="notice" hidden>Unable to load messages.</p>
   <form id="chatForm" class="chat-form">
