@@ -17,6 +17,10 @@ def validate_image(file_storage):
     mimetype = file_storage.mimetype
     if mimetype not in ALLOWED_IMAGE_MIME:
         raise ValueError("Only JPG, PNG and WEBP images are allowed")
+    filename = secure_filename(file_storage.filename)
+    expected_extension = ALLOWED_IMAGE_MIME[mimetype]
+    if not filename.lower().endswith(expected_extension):
+        raise ValueError("Image extension does not match its MIME type")
     header = file_storage.stream.read(512)
     file_storage.stream.seek(0)
     signatures = {

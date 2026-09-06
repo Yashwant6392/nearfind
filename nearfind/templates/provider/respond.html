@@ -16,7 +16,6 @@
       <div class="request-summary"><img src="{{ query.image_url }}" alt="Reference image"><p>Match your product image against this reference.</p></div>
     {% endif %}
     <input type="hidden" name="query_id" value="{{ query.id }}">
-    {% if existing and existing.image_url %}<input type="hidden" name="existing_image_url" value="{{ existing.image_url }}">{% endif %}
     <label>Price<input name="price" value="{{ existing.price if existing else '' }}" placeholder="Rs 850" required></label>
     <label>Message<textarea name="message" rows="4" required>{{ existing.message if existing else '' }}</textarea></label>
     <label class="upload-zone">

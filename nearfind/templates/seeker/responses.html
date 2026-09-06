@@ -11,7 +11,7 @@
 
 <section class="request-summary">
   <div>
-    <span class="status-chip {{ query.status }}">{{ query.status }}</span>
+    <span class="status-chip {{ query.status }}" id="queryStatus">{{ query.status }}</span>
     <p>{{ query.urgency|replace("_", " ") }} · {{ query.radius_km }} km radius · {{ query.location }}</p>
   </div>
   {% if query.image_url %}<img src="{{ query.image_url }}" alt="Your product reference">{% endif %}
@@ -51,6 +51,7 @@
       <a class="btn small" data-call>Call</a>
       <a class="btn small" data-whatsapp target="_blank" rel="noopener">WhatsApp</a>
       <a class="btn small" data-directions target="_blank" rel="noopener">Get Directions</a>
+      <a class="btn small primary" data-chat hidden>Chat with Provider</a>
     </div>
   </article>
 </template>
@@ -59,5 +60,5 @@
 <script>
   window.NEARFIND_QUERY = {{ query|tojson }};
 </script>
-<script src="{{ url_for('static', filename='js/seeker-map.js') }}"></script>
+<script src="{{ url_for('static', filename='js/seeker-map.js', v='responses-v2') }}"></script>
 {% endblock %}

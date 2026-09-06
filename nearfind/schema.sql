@@ -124,17 +124,34 @@ language plpgsql
 set search_path = public
 as $$
 declare
+  selected_query public.queries%rowtype;
   selected_response public.responses%rowtype;
 begin
-  perform 1
+  select *
+  into selected_query
   from public.queries
   where id = p_query_id
-    and seeker_id = p_seeker_id
-    and status = 'open'
   for update;
 
-  if not found then
+  if not found or selected_query.seeker_id <> p_seeker_id then
     raise exception 'Query is not selectable';
+  end if;
+
+  if selected_query.status <> 'open' then
+    raise exception 'Query is not selectable';
+  end if;
+
+  if selected_query.expires_at is not null and selected_query.expires_at <= now() then
+    update public.queries
+    set status = 'expired'
+    where id = p_query_id
+      and status = 'open';
+
+    return jsonb_build_object(
+      'query_id', p_query_id,
+      'status', 'expired',
+      'error', 'Query has expired'
+    );
   end if;
 
   select *
@@ -157,7 +174,9 @@ begin
 
   update public.responses
   set status = 'selected'
-  where id = p_response_id;
+  where id = p_response_id
+    and query_id = p_query_id
+    and status = 'available';
 
   update public.queries
   set status = 'matched'

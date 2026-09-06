@@ -15,6 +15,7 @@
   const queriesById = new Map();
   let providerMarker;
   let activeQueryId;
+  let fetchingQueries = false;
 
   const lat = parseFloat(mapEl.dataset.lat);
   const lng = parseFloat(mapEl.dataset.lng);
@@ -34,19 +35,25 @@
     providerMarker = L.marker([lat, lng], { icon: icon("blue") }).addTo(map).bindPopup("Your location");
   }
 
-  async function updateBrowserLocation() {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const body = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      await fetch("/user/update-location", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
-        body: JSON.stringify(body),
-      });
-      const next = [body.lat, body.lng];
-      if (!providerMarker) providerMarker = L.marker(next, { icon: icon("blue") }).addTo(map);
-      providerMarker.setLatLng(next);
-      if (locationText) locationText.textContent = `${body.lat.toFixed(5)}, ${body.lng.toFixed(5)}`;
+  function updateBrowserLocation() {
+    if (!navigator.geolocation) return Promise.resolve();
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          const body = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          await fetch("/user/update-location", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
+            body: JSON.stringify(body),
+          });
+          const next = [body.lat, body.lng];
+          if (!providerMarker) providerMarker = L.marker(next, { icon: icon("blue") }).addTo(map);
+          providerMarker.setLatLng(next);
+          if (locationText) locationText.textContent = `${body.lat.toFixed(5)}, ${body.lng.toFixed(5)}`;
+        } finally {
+          resolve();
+        }
+      }, resolve);
     });
   }
 
@@ -145,20 +152,22 @@
   }
 
   function renderQueries(queries) {
-    if (!queries.length) {
+    const openQueries = queries.filter((query) => query.status === "open");
+    if (!openQueries.length) {
       showEmpty("No nearby open requests match these filters.");
       return;
     }
     list.replaceChildren();
     queriesById.clear();
-    const liveIds = new Set(queries.map((query) => query.id));
+    const liveIds = new Set(openQueries.map((query) => query.id));
     markers.forEach((marker, id) => {
       if (!liveIds.has(id)) {
         marker.remove();
         markers.delete(id);
       }
     });
-    queries.forEach((query) => {
+    if (activeQueryId && !liveIds.has(activeQueryId)) activeQueryId = undefined;
+    openQueries.forEach((query) => {
       queriesById.set(query.id, query);
       list.appendChild(renderCard(query));
       const popup = document.createElement("div");
@@ -185,20 +194,22 @@
       }
       markers.get(query.id).on("click", () => setActiveQuery(query.id));
     });
-    count.textContent = queries.length === 1 ? "1 person nearby is looking for products." : `${queries.length} people nearby are looking for products.`;
-    setActiveQuery(queriesById.has(activeQueryId) ? activeQueryId : queries[0].id);
-    if (queries.length) {
+    count.textContent = openQueries.length === 1 ? "1 person nearby is looking for products." : `${openQueries.length} people nearby are looking for products.`;
+    setActiveQuery(queriesById.has(activeQueryId) ? activeQueryId : openQueries[0].id);
+    if (openQueries.length) {
       const group = L.featureGroup([...markers.values(), ...(providerMarker ? [providerMarker] : [])]);
       map.fitBounds(group.getBounds().pad(0.2), { maxZoom: 14 });
     }
   }
 
   async function fetchQueries() {
+    if (fetchingQueries) return;
+    fetchingQueries = true;
     count.textContent = "Loading nearby requests...";
     if (refreshButton) refreshButton.disabled = true;
     try {
       const params = new URLSearchParams({ radius_km: radius.value, category: category.value, sort: sort.value });
-      const res = await fetch(`/query/list?${params.toString()}`);
+      const res = await fetch(`/query/list?${params.toString()}`, { cache: "no-store" });
       const payload = await res.json();
       if (!payload.success) {
         showEmpty(payload.error || "Could not load nearby requests.");
@@ -208,6 +219,7 @@
     } catch (error) {
       showEmpty("Could not load nearby requests. Check your connection and try again.");
     } finally {
+      fetchingQueries = false;
       if (refreshButton) refreshButton.disabled = false;
     }
   }

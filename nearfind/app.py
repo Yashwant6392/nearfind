@@ -29,7 +29,7 @@ def json_response(success=True, data=None, error=None, status=200):
 
 
 def wants_json():
-    return request.path.startswith(("/query/", "/upload/", "/user/"))
+    return request.path.startswith(("/query/", "/upload/", "/user/", "/notifications", "/chat/"))
 
 
 def csrf_token():
@@ -85,14 +85,20 @@ def clean_text(value, max_len=500, required=True):
     value = (value or "").strip()
     if required and not value:
         raise ValueError("Required field is missing")
-    return value[:max_len]
+    if len(value) > max_len:
+        raise ValueError(f"Field must be {max_len} characters or fewer")
+    return value
 
 
 def safe_supabase_message(error):
     if error.status_code == 429:
         return "Supabase Auth rate limit exceeded. Please wait and try again."
+    if error.status_code in {400, 422}:
+        return "Unable to complete the request. Please check your input."
+    if error.status_code in {401, 403}:
+        return "Authentication failed or access was denied."
     if 400 <= error.status_code < 500:
-        return error.message or "Unable to complete the request. Please check your input."
+        return "Unable to complete the request."
     return "Unable to complete the request. Please try again."
 
 
@@ -170,6 +176,19 @@ def parse_expiration(value):
     return (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
 
 
+def query_is_expired(query):
+    expires_at = (query or {}).get("expires_at")
+    if not expires_at:
+        return False
+    try:
+        expiration = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if expiration.tzinfo is None:
+        expiration = expiration.replace(tzinfo=timezone.utc)
+    return expiration <= datetime.now(timezone.utc)
+
+
 def expire_open_queries():
     now = datetime.now(timezone.utc).isoformat()
     expired = (
@@ -183,7 +202,7 @@ def expire_open_queries():
     )
     if expired:
         ids = [row["id"] for row in expired]
-        table("queries").update({"status": "expired"}).in_("id", ids).execute()
+        table("queries").update({"status": "expired"}).in_("id", ids).eq("status", "open").execute()
 
 
 def query_response_count(query_id):
@@ -201,10 +220,27 @@ def provider_response_summary(provider_id):
     return summary
 
 
+def selected_provider_responses(provider_id):
+    try:
+        return (
+            table("responses")
+            .select("id,query_id")
+            .eq("provider_id", provider_id)
+            .eq("status", "selected")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        app.logger.exception("Selected response lookup failed")
+        return []
+
+
 def provider_query_eligibility(query, provider):
     if not query:
         return False, "Request not found.", 404
-    if query.get("status") != "open":
+    if query.get("status") != "open" or query_is_expired(query):
         return False, "This request is no longer open.", 409
     if not provider or provider.get("is_active") is not True:
         return False, "Provider account is inactive.", 403
@@ -216,6 +252,112 @@ def provider_query_eligibility(query, provider):
     if distance > float(query.get("radius_km") or 0):
         return False, "This request is outside your service radius.", 403
     return True, distance, 200
+
+
+NOTIFICATION_NAMESPACE = uuid.UUID("6c7e8d6f-6c8b-4f4d-9e31-1f0cf9a8d4b5")
+
+
+def notification_id(user_id, notification_type, query_id, response_id=None, identity_id=None):
+    identity = ":".join(str(value or "") for value in (user_id, notification_type, query_id, response_id, identity_id or response_id))
+    return str(uuid.uuid5(NOTIFICATION_NAMESPACE, identity))
+
+
+def create_notification(user_id, notification_type, title, message, query_id, response_id=None, identity_id=None):
+    record = {
+        "id": notification_id(user_id, notification_type, query_id, response_id, identity_id),
+        "user_id": user_id,
+        "type": notification_type,
+        "title": title,
+        "message": message,
+        "query_id": query_id,
+        "response_id": response_id,
+        "is_read": False,
+    }
+    try:
+        table("notifications").insert(record).execute()
+        return True
+    except SupabaseRequestError as error:
+        if error.status_code == 409:
+            return False
+        app.logger.warning("Notification creation failed: %s", error.message)
+    except Exception:
+        app.logger.exception("Notification creation failed")
+    return False
+
+
+def ensure_conversation(query_id, response_id, seeker_id, provider_id):
+    conversation_id = str(uuid.uuid5(NOTIFICATION_NAMESPACE, f"conversation:{response_id}"))
+    try:
+        existing = table("conversations").select("*").eq("response_id", response_id).maybe_single().execute().data
+        if existing:
+            return existing
+        record = {
+            "id": conversation_id,
+            "query_id": query_id,
+            "response_id": response_id,
+            "seeker_id": seeker_id,
+            "provider_id": provider_id,
+        }
+        table("conversations").insert(record).execute()
+        return record
+    except Exception:
+        app.logger.exception("Conversation creation failed for response %s", response_id)
+        return None
+
+
+def get_conversation_member(conversation_id):
+    if not valid_uuid(conversation_id):
+        return None
+    conversation = table("conversations").select("*").eq("id", conversation_id).maybe_single().execute().data
+    if not conversation:
+        return None
+    user_id = session.get("user_id")
+    if user_id not in {conversation.get("seeker_id"), conversation.get("provider_id")}:
+        return None
+    return conversation
+
+
+def notify_nearby_providers(query):
+    try:
+        providers = (
+            table("users")
+            .select("id,role,is_active,lat,lng")
+            .eq("role", "provider")
+            .eq("is_active", True)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        app.logger.exception("Nearby provider notification lookup failed")
+        return
+    for provider in providers:
+        if provider.get("role") != "provider" or provider.get("is_active") is not True:
+            continue
+        if provider.get("lat") is None or provider.get("lng") is None:
+            continue
+        distance = haversine(float(query["lat"]), float(query["lng"]), float(provider["lat"]), float(provider["lng"]))
+        if distance <= float(query.get("radius_km") or 0):
+            create_notification(
+                provider["id"],
+                "new_request",
+                "New nearby request",
+                f"{query['item_name']} is needed nearby.",
+                query["id"],
+            )
+
+
+def notify_provider_for_response(query, response):
+    if not query.get("seeker_id") or not response.get("id"):
+        return
+    create_notification(
+        query["seeker_id"],
+        "provider_response",
+        "New provider response",
+        f"A provider responded to {query['item_name']}.",
+        query["id"],
+        response["id"],
+    )
 
 
 @app.errorhandler(Exception)
@@ -302,7 +444,14 @@ def auth_signup():
         "lng": lng,
         "last_location_update": datetime.now(timezone.utc).isoformat() if lat and lng else None,
     }
-    table("users").insert(profile).execute()
+    try:
+        table("users").insert(profile).execute()
+    except Exception:
+        session.clear()
+        app.logger.exception("Signup profile creation failed for Supabase user %s", user.id)
+        return render_template("error.html", message="Your account could not be completed. Please try again."), 502
+    session.clear()
+    session.permanent = True
     session.update(
         user_id=user.id,
         role=role,
@@ -327,6 +476,8 @@ def auth_login():
     profile = table("users").select("*").eq("id", user.id).maybe_single().execute().data
     if not profile or not profile.get("is_active", True):
         raise ValueError("User profile is inactive or missing")
+    session.clear()
+    session.permanent = True
     session.update(
         user_id=user.id,
         role=profile["role"],
@@ -336,6 +487,39 @@ def auth_login():
         name=profile.get("name"),
     )
     return redirect(url_for("seeker_dashboard" if profile["role"] == "seeker" else "provider_dashboard"))
+
+
+@app.get("/notifications")
+@login_required
+def notifications():
+    rows = (
+        table("notifications")
+        .select("id,type,title,message,query_id,response_id,is_read,created_at")
+        .eq("user_id", session["user_id"])
+        .order("created_at", desc=True)
+        .limit(50)
+        .execute()
+        .data
+        or []
+    )
+    return json_response(data={"notifications": rows, "unread_count": sum(not row.get("is_read") for row in rows)})
+
+
+@app.post("/notifications/<notification_id>/read")
+@login_required
+def mark_notification_read(notification_id):
+    if not valid_uuid(notification_id):
+        return json_response(False, error="Invalid notification id", status=400)
+    result = (
+        table("notifications")
+        .update({"is_read": True})
+        .eq("id", notification_id)
+        .eq("user_id", session["user_id"])
+        .execute()
+    )
+    if not result.data:
+        return json_response(False, error="Notification not found", status=404)
+    return json_response(data={"message": "Notification marked as read."})
 
 
 @app.post("/auth/logout")
@@ -412,6 +596,7 @@ def post_query():
         "expires_at": parse_expiration(data.get("expiration")),
     }
     table("queries").insert(record).execute()
+    notify_nearby_providers(record)
     flash("Request posted successfully.", "success")
     return redirect(url_for("seeker_responses_page", query_id=record["id"]))
 
@@ -440,7 +625,11 @@ def list_queries():
     priority = {"very_urgent": 0, "urgent": 1, "normal": 2}
     items = []
     for row in rows:
+        if row.get("status") != "open":
+            continue
         if row.get("lat") is None or row.get("lng") is None:
+            continue
+        if query_is_expired(row):
             continue
         if category and category not in (row.get("category") or "").lower():
             continue
@@ -459,6 +648,7 @@ def list_queries():
                     "distance": round(distance, 2),
                     "radius_km": row.get("radius_km"),
                     "urgency": row.get("urgency"),
+                    "status": row.get("status"),
                     "image_url": row.get("image_url"),
                     "created_at": row.get("created_at"),
                     "expires_at": row.get("expires_at"),
@@ -476,7 +666,8 @@ def list_queries():
 def provider_dashboard():
     profile = current_profile()
     summary = provider_response_summary(session["user_id"])
-    return render_template("provider/dashboard.html", profile=profile, summary=summary)
+    selected_responses = selected_provider_responses(session["user_id"])
+    return render_template("provider/dashboard.html", profile=profile, summary=summary, selected_responses=selected_responses)
 
 
 @app.get("/provider/respond/<query_id>")
@@ -514,7 +705,16 @@ def query_respond():
     allowed, detail, status = provider_query_eligibility(query, provider)
     if not allowed:
         return json_response(False, error=detail, status=status)
-    image_url = data.get("existing_image_url") or None
+    existing = (
+        table("responses")
+        .select("id,image_url")
+        .eq("query_id", query_id)
+        .eq("provider_id", session["user_id"])
+        .maybe_single()
+        .execute()
+        .data
+    )
+    image_url = existing.get("image_url") if existing else None
     if request.files.get("image") and request.files["image"].filename:
         image_url = upload_public_image("response-images", request.files["image"], session["user_id"])["image_url"]
     record = {
@@ -523,15 +723,6 @@ def query_respond():
         "image_url": image_url,
         "status": "available",
     }
-    existing = (
-        table("responses")
-        .select("id")
-        .eq("query_id", query_id)
-        .eq("provider_id", session["user_id"])
-        .maybe_single()
-        .execute()
-        .data
-    )
     if existing:
         table("responses").update(record).eq("id", existing["id"]).execute()
         response_id = existing["id"]
@@ -539,6 +730,7 @@ def query_respond():
         record.update({"id": str(uuid.uuid4()), "query_id": query_id, "provider_id": session["user_id"]})
         table("responses").insert(record).execute()
         response_id = record["id"]
+        notify_provider_for_response(query, record)
     if request.headers.get("Accept", "").startswith("application/json"):
         return json_response(data={"response_id": response_id}, status=201)
     flash("Provider response received.", "success")
@@ -569,7 +761,7 @@ def query_responses(query_id):
         return json_response(False, error="Request not found or access denied", status=404)
     rows = (
         table("responses")
-        .select("*, users:provider_id(id,name,business_name,provider_type,phone,lat,lng)")
+        .select("*, users!responses_provider_id_fkey(id,name,business_name,provider_type,phone,lat,lng)")
         .eq("query_id", query_id)
         .order("created_at", desc=False)
         .execute()
@@ -579,8 +771,10 @@ def query_responses(query_id):
     responses = []
     for row in rows:
         provider = row.get("users") or {}
-        selected = row.get("status") == "selected" or query.get("status") in {"matched", "resolved"}
+        selected = row.get("status") == "selected"
         plat, plng = public_provider_location(provider, selected=selected)
+        if row.get("status") == "rejected":
+            plat, plng = None, None
         distance = None
         if plat is not None and plng is not None and query.get("lat") is not None and query.get("lng") is not None:
             distance = round(haversine(float(query["lat"]), float(query["lng"]), plat, plng), 2)
@@ -619,13 +813,109 @@ def select_provider():
     if query.get("status") != "open":
         return json_response(False, error="Only open requests can be matched", status=409)
     response = table("responses").select("*").eq("id", response_id).eq("query_id", query_id).single().execute().data
-    if not response or response.get("status") != "available":
+    if not response or response.get("query_id") != query_id or response.get("status") != "available":
         return json_response(False, error="Provider response is not available", status=409)
-    get_supabase(admin=True).rpc(
+    rpc_result = get_supabase(admin=True).rpc(
         "select_provider_for_query",
         {"p_query_id": query_id, "p_response_id": response_id, "p_seeker_id": session["user_id"]},
     ).execute()
+    if (rpc_result.data or {}).get("status") == "expired":
+        return json_response(False, error="Only open requests can be matched", status=409)
+    if response.get("provider_id"):
+        ensure_conversation(query_id, response_id, session["user_id"], response["provider_id"])
+        create_notification(
+            response["provider_id"],
+            "provider_selected",
+            "Your response was selected",
+            f"Your response for {query.get('item_name', 'your request')} was selected.",
+            query_id,
+            response_id,
+        )
     return json_response(data={"message": "Provider selected."})
+
+
+@app.get("/chat/response/<response_id>")
+@login_required
+def chat_for_response(response_id):
+    if not valid_uuid(response_id):
+        return render_template("error.html", message="Conversation not found."), 404
+    conversation = table("conversations").select("*").eq("response_id", response_id).maybe_single().execute().data
+    if not conversation or session["user_id"] not in {conversation.get("seeker_id"), conversation.get("provider_id")}:
+        return render_template("error.html", message="Conversation not found or access denied."), 404
+    return redirect(url_for("chat_page", conversation_id=conversation["id"]))
+
+
+@app.get("/chat/<conversation_id>")
+@login_required
+def chat_page(conversation_id):
+    conversation = get_conversation_member(conversation_id)
+    if not conversation:
+        return render_template("error.html", message="Conversation not found or access denied."), 404
+    other_id = conversation["provider_id"] if session["user_id"] == conversation["seeker_id"] else conversation["seeker_id"]
+    other = table("users").select("name,business_name,role").eq("id", other_id).maybe_single().execute().data or {}
+    return render_template("chat.html", conversation=conversation, other=other)
+
+
+@app.get("/chat/<conversation_id>/messages")
+@login_required
+def chat_messages(conversation_id):
+    conversation = get_conversation_member(conversation_id)
+    if not conversation:
+        return json_response(False, error="Conversation not found or access denied", status=404)
+    rows = (
+        table("messages")
+        .select("id,conversation_id,sender_id,message,is_read,created_at")
+        .eq("conversation_id", conversation_id)
+        .order("created_at", desc=False)
+        .execute()
+        .data
+        or []
+    )
+    return json_response(data={"conversation": conversation, "messages": rows})
+
+
+@app.post("/chat/<conversation_id>/messages")
+@login_required
+def send_chat_message(conversation_id):
+    conversation = get_conversation_member(conversation_id)
+    if not conversation:
+        return json_response(False, error="Conversation not found or access denied", status=404)
+    data = parse_json_or_form()
+    message = clean_text(data.get("message"), 2000)
+    message_id = str(uuid.uuid4())
+    record = {
+        "id": message_id,
+        "conversation_id": conversation_id,
+        "sender_id": session["user_id"],
+        "message": message,
+        "is_read": False,
+    }
+    table("messages").insert(record).execute()
+    recipient_id = conversation["provider_id"] if session["user_id"] == conversation["seeker_id"] else conversation["seeker_id"]
+    try:
+        create_notification(
+            recipient_id,
+            "chat_message",
+            "New message",
+            f"You have a new message from {session.get('name') or 'your contact'}.",
+            conversation["query_id"],
+            conversation["response_id"],
+            identity_id=message_id,
+        )
+    except Exception:
+        app.logger.exception("Chat notification failed for message %s", message_id)
+    return json_response(data={"message": record}, status=201)
+
+
+@app.post("/chat/<conversation_id>/read")
+@login_required
+def mark_chat_read(conversation_id):
+    conversation = get_conversation_member(conversation_id)
+    if not conversation:
+        return json_response(False, error="Conversation not found or access denied", status=404)
+    other_id = conversation["provider_id"] if session["user_id"] == conversation["seeker_id"] else conversation["seeker_id"]
+    table("messages").update({"is_read": True}).eq("conversation_id", conversation_id).eq("sender_id", other_id).eq("is_read", False).execute()
+    return json_response(data={"message": "Messages marked as read."})
 
 
 @app.post("/query/resolve")
@@ -637,9 +927,36 @@ def resolve_query():
         return json_response(False, error="Request not found or access denied", status=404)
     if query.get("status") != "matched":
         return json_response(False, error="Only matched requests can be resolved", status=409)
-    table("queries").update({"status": "resolved"}).eq("id", query["id"]).execute()
+    selected_response = (
+        table("responses")
+        .select("id,provider_id")
+        .eq("query_id", query["id"])
+        .eq("status", "selected")
+        .maybe_single()
+        .execute()
+        .data
+    )
+    result = (
+        table("queries")
+        .update({"status": "resolved"})
+        .eq("id", query["id"])
+        .eq("seeker_id", session["user_id"])
+        .eq("status", "matched")
+        .execute()
+    )
+    if not result.data:
+        return json_response(False, error="Only matched requests can be resolved", status=409)
+    if selected_response:
+        create_notification(
+            selected_response["provider_id"],
+            "request_resolved",
+            "Request resolved",
+            f"The request for {query['item_name']} has been resolved.",
+            query["id"],
+            selected_response["id"],
+        )
     return json_response(data={"message": "Request resolved."})
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=Config.DEBUG)

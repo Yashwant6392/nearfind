@@ -33,6 +33,16 @@ img { max-width: 100%; display: block; }
 .brand span, .eyebrow { color: var(--gold); }
 .topbar nav { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; font-size: 14px; }
 .nav-cta { border: 1px solid var(--line); padding: 8px 12px; border-radius: 8px; }
+.notification-menu { position: relative; }
+.notification-button { position: relative; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: rgba(255,255,255,.08); color: var(--white); padding: 8px 12px; cursor: pointer; font: inherit; }
+.notification-badge { position: absolute; top: -7px; right: -7px; min-width: 18px; padding: 1px 5px; border-radius: 999px; background: var(--danger); color: var(--white); font-size: 11px; font-weight: 900; text-align: center; }
+.notification-panel { position: absolute; top: calc(100% + 12px); right: 0; width: min(340px, calc(100vw - 32px)); max-height: 420px; overflow: auto; padding: 14px; background: #151515; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 16px 45px rgba(0,0,0,.35); z-index: 30; }
+.notification-panel h2 { margin: 0 0 10px; font-size: 18px; }
+.notification-panel > .btn { width: 100%; margin-bottom: 8px; }
+.notification-item { display: grid; gap: 3px; padding: 11px 8px; border-top: 1px solid rgba(255,255,255,.1); }
+.notification-item span { color: var(--body); font-size: 13px; }
+.notification-item.unread { background: rgba(245,197,24,.08); }
+.notification-item:hover { background: rgba(245,197,24,.14); }
 .logout-form { margin: 0; }
 .logout-form button { background: transparent; border: 0; color: var(--white); cursor: pointer; font: inherit; padding: 0; }
 .logout-form button:hover { color: var(--gold); }
@@ -130,6 +140,8 @@ select option { color: #111; }
 .provider-sidebar dl { display: grid; gap: 12px; margin: 0; }
 .provider-sidebar dt { color: var(--muted); font-size: 12px; font-weight: 900; text-transform: uppercase; }
 .provider-sidebar dd { margin: 2px 0 0; color: var(--body); overflow-wrap: anywhere; }
+.selected-chats { display: grid; gap: 8px; }
+.selected-chats h2 { margin: 0; font-size: 16px; }
 .provider-main { min-width: 0; }
 .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .metric-grid div {
@@ -162,6 +174,19 @@ select option { color: #111; }
 .query-detail img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); }
 .filters { display: grid; grid-template-columns: 160px 1fr 160px auto; align-items: end; gap: 14px; margin-bottom: 18px; }
 .response-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.chat-shell { width: min(760px, 100%); margin: 0 auto; padding: 28px 0 44px; }
+.chat-header { display: flex; align-items: center; gap: 16px; padding: 14px 0 20px; }
+.chat-header h1 { margin: 0; font-size: clamp(28px, 5vw, 46px); }
+.chat-messages { min-height: 420px; max-height: 65vh; overflow: auto; display: grid; align-content: start; gap: 12px; padding: 18px; background: var(--panel); border: 1px solid rgba(255,255,255,.1); border-radius: 8px; }
+.chat-bubble { width: fit-content; max-width: min(78%, 560px); padding: 11px 14px; border-radius: 12px; }
+.chat-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-bubble time { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+.chat-bubble.sent { justify-self: end; background: var(--gold); color: #0a0a0a; }
+.chat-bubble.sent time { color: rgba(10,10,10,.65); }
+.chat-bubble.received { justify-self: start; background: rgba(255,255,255,.1); }
+.chat-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 14px; }
+.chat-form textarea { resize: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .thumb img, .popup-img { border-radius: 8px; max-height: 140px; object-fit: cover; margin: 10px 0; }
 .request-facts { display: flex; flex-wrap: wrap; gap: 8px; }
 .request-facts span { padding: 6px 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; color: var(--body); background: rgba(255,255,255,.06); font-size: 13px; font-weight: 800; }
@@ -209,4 +234,6 @@ figcaption { color: var(--gold); font-size: 13px; font-weight: 800; margin-botto
   .panel { padding: 18px; }
   .actions { flex-direction: column; }
   .btn { width: 100%; }
+  .notification-panel { left: 0; right: auto; }
+  .chat-form { grid-template-columns: 1fr; }
 }

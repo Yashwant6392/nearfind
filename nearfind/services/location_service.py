@@ -20,6 +20,8 @@ def coerce_float(value, name, min_value=None, max_value=None):
         number = float(value)
     except (TypeError, ValueError):
         raise ValueError(f"{name} must be a number")
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite number")
     if min_value is not None and number < min_value:
         raise ValueError(f"{name} must be at least {min_value}")
     if max_value is not None and number > max_value:

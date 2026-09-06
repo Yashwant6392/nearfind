@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="chat-shell" data-conversation-id="{{ conversation.id }}" data-current-user="{{ session.user_id }}">
+  <div class="chat-header">
+    <a class="btn small" href="{{ url_for('seeker_dashboard' if session.role == 'seeker' else 'provider_dashboard') }}">Back</a>
+    <div>
+      <p class="eyebrow">NearFind conversation</p>
+      <h1>{{ other.business_name or other.name or "NearFind contact" }}</h1>
+    </div>
+  </div>
+  <div id="chatMessages" class="chat-messages"><p class="empty">Loading messages...</p></div>
+  <p id="chatError" class="notice" hidden>Unable to load messages.</p>
+  <form id="chatForm" class="chat-form">
+    <label class="sr-only" for="chatInput">Message</label>
+    <textarea id="chatInput" rows="2" maxlength="2000" placeholder="Write a message" required></textarea>
+    <button class="btn primary" type="submit" id="chatSend">Send</button>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chat.js', v='chat-v1') }}"></script>
+{% endblock %}

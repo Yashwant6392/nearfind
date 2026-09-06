@@ -14,6 +14,14 @@
     <a class="brand" href="{{ url_for('index') }}"><span>Near</span>Find</a>
     <nav>
       {% if session.get("user_id") %}
+        <div class="notification-menu" data-notifications>
+          <button class="notification-button" type="button" id="notificationToggle" aria-label="Notifications" aria-expanded="false">&#128276;<span class="notification-badge" id="notificationBadge" hidden>0</span></button>
+          <section class="notification-panel" id="notificationPanel" hidden>
+            <h2>Notifications</h2>
+            <button class="btn small ghost" type="button" id="desktopNotifications" hidden>Enable desktop notifications</button>
+            <div id="notificationList"><p class="empty">No notifications yet.</p></div>
+          </section>
+        </div>
         {% if session.get("role") == "seeker" %}
           <a href="{{ url_for('seeker_dashboard') }}">Dashboard</a>
           <a class="nav-cta" href="{{ url_for('post_query_page') }}">Find a Product</a>

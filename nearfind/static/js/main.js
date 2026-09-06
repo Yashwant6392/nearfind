@@ -12,6 +12,129 @@
   const csrfToken = document.querySelector("meta[name='csrf-token']")?.content || "";
   window.NearFindCSRFToken = csrfToken;
 
+  const notificationMenu = document.querySelector("[data-notifications]");
+  if (notificationMenu) {
+    const toggle = document.getElementById("notificationToggle");
+    const panel = document.getElementById("notificationPanel");
+    const badge = document.getElementById("notificationBadge");
+    const list = document.getElementById("notificationList");
+    const desktopButton = document.getElementById("desktopNotifications");
+    let notificationRequest;
+    let knownNotificationIds;
+
+    const notificationTarget = (notification) => {
+      if (notification.type === "provider_response") return `/seeker/responses/${notification.query_id}`;
+      if (notification.type === "new_request") return "/provider/dashboard";
+      if (["chat_message", "provider_selected", "request_resolved"].includes(notification.type) && notification.response_id) {
+        return `/chat/response/${notification.response_id}`;
+      }
+      return "/provider/dashboard";
+    };
+
+    const updateDesktopButton = () => {
+      if (!desktopButton || !("Notification" in window)) return;
+      desktopButton.hidden = Notification.permission !== "default";
+    };
+
+    const announceNewNotifications = (notifications) => {
+      const currentIds = new Set(notifications.map((notification) => notification.id));
+      if (!knownNotificationIds) {
+        knownNotificationIds = currentIds;
+        return;
+      }
+      if ("Notification" in window && Notification.permission === "granted") {
+        notifications.filter((notification) => !knownNotificationIds.has(notification.id) && !notification.is_read)
+          .forEach((notification) => new Notification(notification.title, { body: notification.message }));
+      }
+      knownNotificationIds = currentIds;
+    };
+
+    const renderNotifications = (notifications) => {
+      list.replaceChildren();
+      if (!notifications.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "No notifications yet.";
+        list.appendChild(empty);
+        return;
+      }
+      notifications.forEach((notification) => {
+        const item = document.createElement("a");
+        item.className = `notification-item${notification.is_read ? " read" : " unread"}`;
+        item.href = notificationTarget(notification);
+        item.dataset.notificationId = notification.id;
+        const title = document.createElement("strong");
+        title.textContent = notification.title;
+        const message = document.createElement("span");
+        message.textContent = notification.message;
+        item.append(title, message);
+        item.addEventListener("click", async (event) => {
+          if (notification.is_read) return;
+          event.preventDefault();
+          try {
+            await fetch(`/notifications/${notification.id}/read`, {
+              method: "POST",
+              headers: { "X-CSRFToken": csrfToken },
+            });
+          } finally {
+            window.location.assign(item.href);
+          }
+        });
+        list.appendChild(item);
+      });
+    };
+
+    const loadNotifications = async () => {
+      if (notificationRequest) return notificationRequest;
+      notificationRequest = fetch("/notifications", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((payload) => {
+          if (!payload.success) return;
+          const notifications = payload.data.notifications || [];
+          const unreadCount = payload.data.unread_count || 0;
+          badge.textContent = unreadCount;
+          badge.hidden = unreadCount === 0;
+          announceNewNotifications(notifications);
+          renderNotifications(notifications);
+        })
+        .catch(() => {})
+        .finally(() => {
+          notificationRequest = undefined;
+        });
+      return notificationRequest;
+    };
+
+    toggle.addEventListener("click", async () => {
+      const open = !panel.hidden;
+      panel.hidden = open;
+      toggle.setAttribute("aria-expanded", String(!open));
+      if (!open) await loadNotifications();
+    });
+    desktopButton?.addEventListener("click", async () => {
+      if (!("Notification" in window) || Notification.permission !== "default") return;
+      await Notification.requestPermission();
+      updateDesktopButton();
+    });
+    document.addEventListener("click", (event) => {
+      if (!notificationMenu.contains(event.target)) {
+        panel.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        panel.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+    updateDesktopButton();
+    loadNotifications();
+    const notificationTimer = setInterval(() => {
+      if (!document.hidden) loadNotifications();
+    }, 10000);
+    window.addEventListener("pagehide", () => clearInterval(notificationTimer), { once: true });
+  }
+
   async function postLocation(lat, lng) {
     const res = await fetch("/user/update-location", {
       method: "POST",

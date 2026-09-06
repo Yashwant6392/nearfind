@@ -7,11 +7,14 @@
   const providerCount = document.getElementById("providerCount");
   const template = document.getElementById("responseTemplate");
   const resolveBtn = document.getElementById("resolveBtn");
+  const queryStatus = document.getElementById("queryStatus");
   const markers = new Map();
   const knownResponses = new Set();
   const selectingResponses = new Set();
+  const terminalStatuses = new Set(["resolved", "expired", "closed"]);
   let fetchingResponses = false;
   let resolving = false;
+  let pollTimer;
 
   const map = L.map(mapEl).setView([query.lat, query.lng], 13);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -52,10 +55,38 @@
     };
   }
 
+  function responsePopup(response) {
+    const popup = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = response.business_name || response.provider_name || "Provider";
+    const meta = document.createElement("p");
+    meta.textContent = `${response.distance ?? "?"} km away - ${response.status}`;
+    const message = document.createElement("p");
+    message.textContent = response.message || "No message provided";
+    const price = document.createElement("strong");
+    price.textContent = response.price || "Price not shared";
+    popup.append(title, meta, message, price);
+    if (response.image_url) {
+      const image = document.createElement("img");
+      image.src = response.image_url;
+      image.alt = "Provider product";
+      image.className = "popup-img";
+      popup.appendChild(image);
+    }
+    return popup;
+  }
+
   function syncResolveButton() {
     if (!resolveBtn) return;
     resolveBtn.hidden = query.status !== "matched";
     resolveBtn.disabled = query.status !== "matched" || resolving;
+  }
+
+  function stopPollingIfTerminal() {
+    if (terminalStatuses.has(query.status) && pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
   }
 
   function showListMessage(message, kind = "empty") {
@@ -123,9 +154,14 @@
     const call = node.querySelector("[data-call]");
     const whatsapp = node.querySelector("[data-whatsapp]");
     const directions = node.querySelector("[data-directions]");
+    const chat = node.querySelector("[data-chat]");
     call.href = urls.call || "#";
     whatsapp.href = urls.whatsapp || "#";
     directions.href = urls.directions || "#";
+    if (response.status === "selected") {
+      chat.href = `/chat/response/${response.id}`;
+      chat.hidden = false;
+    }
     [call, whatsapp, directions].forEach((link) => {
       if (link.getAttribute("href") === "#") link.classList.add("disabled");
     });
@@ -141,13 +177,16 @@
       }
     });
     responses.forEach((response) => {
-      if (response.provider_lat === null || response.provider_lng === null) return;
+      if (response.provider_lat === null || response.provider_lng === null || response.status === "rejected") {
+        markers.get(response.id)?.remove();
+        markers.delete(response.id);
+        return;
+      }
       const fresh = !knownResponses.has(response.id);
-      const label = `${response.business_name || response.provider_name || "Provider"} · ${response.price || ""}`;
       if (markers.has(response.id)) {
-        markers.get(response.id).setLatLng([response.provider_lat, response.provider_lng]).bindPopup(label);
+        markers.get(response.id).setLatLng([response.provider_lat, response.provider_lng]).bindPopup(responsePopup(response));
       } else {
-        markers.set(response.id, L.marker([response.provider_lat, response.provider_lng], { icon: icon("green", fresh) }).addTo(map).bindPopup(label));
+        markers.set(response.id, L.marker([response.provider_lat, response.provider_lng], { icon: icon("green", fresh) }).addTo(map).bindPopup(responsePopup(response)));
       }
       if (fresh && knownResponses.size) window.NearFindToast("Provider response received.");
       knownResponses.add(response.id);
@@ -178,9 +217,24 @@
     if (fetchingResponses && !options.force) return;
     fetchingResponses = true;
     if (!knownResponses.size) providerCount.textContent = "Loading responses...";
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(`/query/responses/${query.id}`);
-      const payload = await res.json();
+      const res = await fetch(`/query/responses/${query.id}`, { cache: "no-store", signal: controller.signal });
+      let payload;
+      try {
+        payload = await res.json();
+      } catch (error) {
+        throw new Error(`Response endpoint returned HTTP ${res.status}`);
+      }
+      if (!res.ok) {
+        const message = payload.error || `Response endpoint returned HTTP ${res.status}`;
+        console.error("NearFind response API error", { status: res.status, error: payload.error });
+        window.NearFindToast(message, "error");
+        providerCount.textContent = "Could not load responses";
+        showListMessage(message, "empty");
+        return;
+      }
       if (!payload.success) {
         window.NearFindToast(payload.error || "Could not load responses.", "error");
         providerCount.textContent = "Could not load responses";
@@ -188,12 +242,22 @@
         return;
       }
       query = payload.data.query || query;
+      if (queryStatus) {
+        queryStatus.textContent = query.status;
+        queryStatus.className = `status-chip ${query.status}`;
+      }
+      stopPollingIfTerminal();
+      if (!payload.data || !Array.isArray(payload.data.responses)) {
+        throw new Error("Response endpoint returned an invalid payload");
+      }
       renderResponses(payload.data.responses);
     } catch (error) {
+      console.error("NearFind response fetch failed", error);
       window.NearFindToast("Could not load responses. Check your connection and try again.", "error");
       providerCount.textContent = "Could not load responses";
       showListMessage("Could not load responses. Check your connection and try again.", "empty");
     } finally {
+      clearTimeout(timeoutId);
       fetchingResponses = false;
     }
   }
@@ -215,7 +279,13 @@
         const payload = await res.json();
         if (payload.success) {
           window.NearFindToast("Request resolved.");
-          window.location.href = "/seeker/dashboard";
+          query.status = "resolved";
+          if (queryStatus) {
+            queryStatus.textContent = "resolved";
+            queryStatus.className = "status-chip resolved";
+          }
+          stopPollingIfTerminal();
+          syncResolveButton();
         } else {
           window.NearFindToast(payload.error || "Could not resolve request.", "error");
         }
@@ -231,5 +301,15 @@
 
   syncResolveButton();
   fetchResponses();
-  setInterval(fetchResponses, 3000);
+  pollTimer = setInterval(() => {
+    if (terminalStatuses.has(query.status)) {
+      stopPollingIfTerminal();
+      return;
+    }
+    fetchResponses();
+  }, 3000);
+  window.addEventListener("pagehide", () => {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = undefined;
+  }, { once: true });
 })();
