@@ -6,6 +6,9 @@
   const responsesList = document.getElementById("responsesList");
   const providerCount = document.getElementById("providerCount");
   const template = document.getElementById("responseTemplate");
+  const responseSort = document.getElementById("responseSort");
+  const responseFilter = document.getElementById("responseFilter");
+  const details = document.getElementById("responseDetails");
   const resolveBtn = document.getElementById("resolveBtn");
   const queryStatus = document.getElementById("queryStatus");
   const markers = new Map();
@@ -18,6 +21,8 @@
   let locationPollTimer;
   let selectedResponseId;
   let liveProviderLocation;
+  let responseSnapshot = [];
+  let detailResponseId;
 
   const map = L.map(mapEl).setView([query.lat, query.lng], 13);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -38,6 +43,7 @@
       const img = document.createElement("img");
       img.src = src;
       img.alt = alt;
+      img.addEventListener("error", () => addImage(slot, "", alt));
       slot.appendChild(img);
     } else {
       const placeholder = document.createElement("span");
@@ -46,15 +52,75 @@
     }
   }
 
+  function numericPrice(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const numeric = Number(String(value).replace(/[^\d.-]/g, ""));
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function formatPrice(value) {
+    const numeric = numericPrice(value);
+    if (numeric === null) return "Price not provided";
+    return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(numeric);
+  }
+
+  function formatDistance(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "Distance unavailable";
+    const distance = Number(value);
+    return distance < 0.1 ? `${Math.round(distance * 1000)} m` : `${distance.toFixed(2)} km`;
+  }
+
+  function formatResponseTime(value) {
+    if (!value) return "Response time unavailable";
+    const timestamp = new Date(value).getTime();
+    if (!Number.isFinite(timestamp)) return "Response time unavailable";
+    const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+
+  function statusLabel(status) {
+    return { available: "Available", selected: "Selected", rejected: "Not selected" }[status] || "Status unavailable";
+  }
+
+  function sortedResponses(responses) {
+    const sort = responseSort?.value || "best";
+    return [...responses].sort((left, right) => {
+      const availability = Number(right.status === "available") - Number(left.status === "available");
+      if (sort === "best" && availability) return availability;
+      const leftDistance = left.distance === null ? Infinity : Number(left.distance);
+      const rightDistance = right.distance === null ? Infinity : Number(right.distance);
+      const leftPrice = numericPrice(left.price) ?? Infinity;
+      const rightPrice = numericPrice(right.price) ?? Infinity;
+      if (sort === "price" && leftPrice !== rightPrice) return leftPrice - rightPrice;
+      if (sort === "distance" && leftDistance !== rightDistance) return leftDistance - rightDistance;
+      if (sort === "time") return new Date(left.created_at || 0) - new Date(right.created_at || 0);
+      if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+      if (leftPrice !== rightPrice) return leftPrice - rightPrice;
+      return new Date(left.created_at || 0) - new Date(right.created_at || 0);
+    });
+  }
+
+  function filteredResponses(responses) {
+    const filter = responseFilter?.value || "all";
+    if (filter === "price") return responses.filter((response) => numericPrice(response.price) !== null);
+    if (filter === "image") return responses.filter((response) => Boolean(response.image_url));
+    if (filter === "nearby") return responses.filter((response) => response.distance !== null && Number(response.distance) <= 2);
+    return responses;
+  }
+
   function actionUrls(response) {
     const phone = response.phone || "";
     const provider = response.business_name || response.provider_name || "provider";
     const message = encodeURIComponent(`Hi ${provider}, I found your NearFind response for ${query.item_name}. Is it still available?`);
-    const latLng = `${response.provider_lat},${response.provider_lng}`;
     return {
       call: phone ? `tel:${phone}` : "",
       whatsapp: phone ? `https://wa.me/${phone.replace(/\D/g, "")}?text=${message}` : "",
-      directions: response.provider_lat && response.provider_lng ? `https://www.openstreetmap.org/directions?to=${latLng}` : "",
+      directions: "",
     };
   }
 
@@ -100,9 +166,7 @@
     if (!selectedResponseId || terminalStatuses.has(query.status) || document.hidden) return;
     const status = responsesList.querySelector(`[data-response-id="${selectedResponseId}"] [data-location-status]`);
     try {
-      const response = await fetch(`/query/${query.id}/provider-location`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Location unavailable");
+      const { payload } = await window.NearFindFetch(`/query/${query.id}/provider-location`, { cache: "no-store" });
       liveProviderLocation = payload.data;
       const marker = markers.get(selectedResponseId);
       if (!liveProviderLocation) {
@@ -148,17 +212,16 @@
       button.textContent = "Selecting...";
     }
     try {
-      const res = await fetch("/query/select-provider", {
+      const { payload } = await window.NearFindFetch("/query/select-provider", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
         body: JSON.stringify({ query_id: query.id, response_id: responseId }),
       });
-      const payload = await res.json();
       if (payload.success) {
         window.NearFindToast("Provider selected.");
         await fetchResponses({ force: true });
       } else {
-        window.NearFindToast(payload.error || "Could not select provider.", "error");
+        window.NearFindToast(window.NearFindErrorMessage(payload, "Could not select provider."), "error");
       }
     } catch (error) {
       window.NearFindToast("Could not select provider. Please try again.", "error");
@@ -177,14 +240,16 @@
     const metaParts = [];
     if (response.business_name) metaParts.push(response.business_name);
     metaParts.push(response.provider_type || "provider");
-    metaParts.push(`${response.distance ?? "?"} km away`);
+    metaParts.push(formatDistance(response.distance));
     node.querySelector("[data-name]").textContent = providerName;
     node.querySelector("[data-meta]").textContent = metaParts.join(" - ");
     const chip = node.querySelector("[data-status]");
-    chip.textContent = response.status === "selected" ? "Provider Selected" : response.status;
+    chip.textContent = statusLabel(response.status);
     chip.classList.add(response.status);
     node.querySelector("[data-message]").textContent = response.message || "";
-    node.querySelector("[data-price]").textContent = response.price || "Price not shared";
+    node.querySelector("[data-price]").textContent = formatPrice(response.price);
+    node.querySelector("[data-distance]").textContent = formatDistance(response.distance);
+    node.querySelector("[data-time]").textContent = formatResponseTime(response.created_at);
     addImage(node.querySelector("[data-reference]"), query.image_url, "Your reference");
     addImage(node.querySelector("[data-product]"), response.image_url, "Provider product");
     const urls = actionUrls(response);
@@ -197,16 +262,22 @@
     const directions = node.querySelector("[data-directions]");
     const chat = node.querySelector("[data-chat]");
     const locationStatus = node.querySelector("[data-location-status]");
+    const detailsButton = node.querySelector("[data-details]");
     call.href = urls.call || "#";
     whatsapp.href = urls.whatsapp || "#";
     directions.href = urls.directions || "#";
+    directions.hidden = true;
     if (response.status === "selected") {
       node.dataset.responseId = response.id;
       locationStatus.hidden = false;
       locationStatus.textContent = "Provider location unavailable";
       chat.href = `/chat/response/${response.id}`;
       chat.hidden = false;
+    } else if (response.status === "rejected") {
+      locationStatus.hidden = false;
+      locationStatus.textContent = "This provider was not selected.";
     }
+    detailsButton.addEventListener("click", () => showDetails(response));
     [call, whatsapp, directions].forEach((link) => {
       if (link.getAttribute("href") === "#") link.classList.add("disabled");
     });
@@ -243,53 +314,69 @@
   }
 
   function renderResponses(responses) {
+    responseSnapshot = responses;
     responsesList.replaceChildren();
     const selected = responses.find((response) => response.status === "selected");
     selectedResponseId = selected?.id;
     liveProviderLocation = null;
+    const responseLabel = responses.length === 1 ? "1 provider found" : `${responses.length} providers found`;
     providerCount.textContent = responses.length === 0
       ? "Waiting for responses..."
-      : responses.length === 1 ? "1 provider found" : `${responses.length} providers found`;
+      : selected ? responseLabel : `${responseLabel} - No provider selected yet`;
     if (responses.length === 0) {
-      showListMessage("No provider responses yet. This page updates automatically.");
+      showListMessage("No providers have responded yet. Keep this page open. We'll show new responses when they arrive.");
       updateMarkers(responses);
       syncResolveButton();
       return;
     }
-    responses.forEach((response) => responsesList.appendChild(renderResponse(response)));
+    const visibleResponses = filteredResponses(sortedResponses(responses));
+    if (!visibleResponses.length) {
+      showListMessage("No responses match this filter.");
+    } else {
+      visibleResponses.forEach((response) => responsesList.appendChild(renderResponse(response)));
+    }
     updateMarkers(responses);
     fetchSelectedProviderLocation();
     syncResolveButton();
   }
 
+  function showDetails(response) {
+    if (!details) return;
+    detailResponseId = response.id;
+    details.querySelector("[data-detail-name]").textContent = response.provider_name || "Provider";
+    details.querySelector("[data-detail-meta]").textContent = [response.business_name, response.provider_type].filter(Boolean).join(" - ") || "Provider information";
+    details.querySelector("[data-detail-message]").textContent = response.message || "No response message provided.";
+    details.querySelector("[data-detail-price]").textContent = formatPrice(response.price);
+    details.querySelector("[data-detail-distance]").textContent = formatDistance(response.distance);
+    details.querySelector("[data-detail-time]").textContent = formatResponseTime(response.created_at);
+    addImage(details.querySelector("[data-detail-image]"), response.image_url, "Provider product");
+    details.querySelector("[data-detail-location]").textContent = response.status === "selected"
+      ? (response.location_available ? "Provider location: Available" : "Provider location: Unavailable")
+      : "Provider location is shown only after selection.";
+    const select = details.querySelector("[data-detail-select]");
+    select.hidden = response.status !== "available" || query.status !== "open";
+    select.disabled = false;
+    select.textContent = "Select Provider";
+    select.onclick = () => selectProvider(response.id, select);
+    const chat = details.querySelector("[data-detail-chat]");
+    chat.hidden = response.status !== "selected";
+    chat.href = `/chat/response/${response.id}`;
+    if (typeof details.showModal === "function") details.showModal();
+  }
+
+  details?.querySelector("[data-close-details]").addEventListener("click", () => details.close());
+  details?.addEventListener("click", (event) => {
+    if (event.target === details) details.close();
+  });
+
   async function fetchResponses(options = {}) {
-    if (fetchingResponses && !options.force) return;
+    if (document.hidden || fetchingResponses && !options.force) return;
     fetchingResponses = true;
     if (!knownResponses.size) providerCount.textContent = "Loading responses...";
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(`/query/responses/${query.id}`, { cache: "no-store", signal: controller.signal });
-      let payload;
-      try {
-        payload = await res.json();
-      } catch (error) {
-        throw new Error(`Response endpoint returned HTTP ${res.status}`);
-      }
-      if (!res.ok) {
-        const message = payload.error || `Response endpoint returned HTTP ${res.status}`;
-        console.error("NearFind response API error", { status: res.status, error: payload.error });
-        window.NearFindToast(message, "error");
-        providerCount.textContent = "Could not load responses";
-        showListMessage(message, "empty");
-        return;
-      }
-      if (!payload.success) {
-        window.NearFindToast(payload.error || "Could not load responses.", "error");
-        providerCount.textContent = "Could not load responses";
-        showListMessage(payload.error || "Could not load responses. Please try again.", "empty");
-        return;
-      }
+      const { payload } = await window.NearFindFetch(`/query/responses/${query.id}`, { cache: "no-store" });
       query = payload.data.query || query;
       if (queryStatus) {
         queryStatus.textContent = query.status;
@@ -302,9 +389,9 @@
       renderResponses(payload.data.responses);
     } catch (error) {
       console.error("NearFind response fetch failed", error);
-      window.NearFindToast("Could not load responses. Check your connection and try again.", "error");
+      window.NearFindToast(error.message || "Could not load responses. Check your connection and try again.", "error");
       providerCount.textContent = "Could not load responses";
-      showListMessage("Could not load responses. Check your connection and try again.", "empty");
+      showListMessage(error.message || "Could not load responses. Check your connection and try again.", "empty");
     } finally {
       clearTimeout(timeoutId);
       fetchingResponses = false;
@@ -320,12 +407,11 @@
       resolveBtn.disabled = true;
       resolveBtn.textContent = "Resolving...";
       try {
-        const res = await fetch("/query/resolve", {
+        const { payload } = await window.NearFindFetch("/query/resolve", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
           body: JSON.stringify({ query_id: query.id }),
         });
-        const payload = await res.json();
         if (payload.success) {
           window.NearFindToast("Request resolved.");
           query.status = "resolved";
@@ -336,7 +422,7 @@
           stopPollingIfTerminal();
           syncResolveButton();
         } else {
-          window.NearFindToast(payload.error || "Could not resolve request.", "error");
+          window.NearFindToast(window.NearFindErrorMessage(payload, "Could not resolve request."), "error");
         }
       } catch (error) {
         window.NearFindToast("Could not resolve request. Please try again.", "error");
@@ -364,6 +450,7 @@
       fetchSelectedProviderLocation();
     }
   });
+  [responseSort, responseFilter].forEach((control) => control?.addEventListener("change", () => renderResponses(responseSnapshot)));
   window.addEventListener("pagehide", () => {
     if (pollTimer) clearInterval(pollTimer);
     if (locationPollTimer) clearInterval(locationPollTimer);

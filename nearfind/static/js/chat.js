@@ -29,17 +29,16 @@
   }
 
   async function sendLocation(position) {
+    if (document.hidden || !sharing) return;
     const now = Date.now();
     const next = { lat: position.coords.latitude, lng: position.coords.longitude, accuracy_m: position.coords.accuracy };
     const moved = !lastPosition || Math.abs(next.lat - lastPosition.lat) > 0.00005 || Math.abs(next.lng - lastPosition.lng) > 0.00005;
     if (now - lastSentAt < 10000 && !moved) return;
-    const response = await fetch("/location/update", {
+    const { payload } = await window.NearFindFetch("/location/update", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
       body: JSON.stringify({ ...next, sharing_enabled: true }),
     });
-    const payload = await response.json();
-    if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to update location");
     lastSentAt = now;
     lastPosition = next;
     setLocationStatus("Location Sharing: ON · Last updated: just now", true);
@@ -51,7 +50,7 @@
     locationWatch = undefined;
     sharing = false;
     setLocationStatus("Location sharing is off.", false);
-    fetch("/location/stop", {
+    window.NearFindFetch("/location/stop", {
       method: "POST",
       headers: { "X-CSRFToken": window.NearFindCSRFToken || "" },
       keepalive: true,
@@ -103,19 +102,18 @@
     if (loading) return;
     loading = true;
     try {
-      const response = await fetch(`/chat/${conversationId}/messages`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to load messages");
+      const { payload } = await window.NearFindFetch(`/chat/${conversationId}/messages`, { cache: "no-store" });
       queryStatus = payload.data.query_status || queryStatus;
       if (queryStatus === "resolved") stopLocationSharing();
       errorEl.hidden = true;
       render(payload.data.messages || []);
-      await fetch(`/chat/${conversationId}/read`, {
+      await window.NearFindFetch(`/chat/${conversationId}/read`, {
         method: "POST",
         headers: { "X-CSRFToken": window.NearFindCSRFToken || "" },
       });
     } catch (error) {
       errorEl.hidden = false;
+      errorEl.textContent = error.message || "Unable to load messages. Please try again.";
     } finally {
       loading = false;
     }
@@ -129,18 +127,16 @@
     send.disabled = true;
     send.textContent = "Please wait...";
     try {
-      const response = await fetch(`/chat/${conversationId}/messages`, {
+      await window.NearFindFetch(`/chat/${conversationId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
         body: JSON.stringify({ message }),
       });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to send message");
       input.value = "";
       await loadMessages();
     } catch (error) {
       errorEl.hidden = false;
-      errorEl.textContent = "Unable to send message.";
+      errorEl.textContent = error.message || "Unable to send message.";
     } finally {
       sending = false;
       send.disabled = false;

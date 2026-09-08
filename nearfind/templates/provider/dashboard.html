@@ -15,11 +15,17 @@
       <div><strong>{{ summary.selected }}</strong><span>Selected</span></div>
     </div>
     <button class="btn primary" id="refreshRequests" type="button">Refresh Requests</button>
+    <p class="notice">Location Sharing: {{ "ON" if location_sharing else "OFF" }}</p>
     {% if selected_responses %}
     <section class="selected-chats">
       <h2>Selected requests</h2>
       {% for response in selected_responses %}
-      <a class="btn small" href="{{ url_for('chat_for_response', response_id=response.id) }}">Chat with Seeker</a>
+      <div class="selected-response">
+        <strong>Provider response selected</strong>
+        {% if response.queries %}<span>{{ response.queries.item_name }}</span>{% endif %}
+        <span class="status-chip selected">Selected by seeker</span>
+        <a class="btn small" href="{{ url_for('chat_for_response', response_id=response.id) }}">Chat with Seeker</a>
+      </div>
       {% endfor %}
     </section>
     {% endif %}

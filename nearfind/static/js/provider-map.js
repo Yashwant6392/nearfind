@@ -41,7 +41,7 @@
       navigator.geolocation.getCurrentPosition(async (pos) => {
         try {
           const body = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          await fetch("/user/update-location", {
+          await window.NearFindFetch("/user/update-location", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRFToken": window.NearFindCSRFToken || "" },
             body: JSON.stringify(body),
@@ -203,21 +203,16 @@
   }
 
   async function fetchQueries() {
-    if (fetchingQueries) return;
+    if (fetchingQueries || document.hidden) return;
     fetchingQueries = true;
     count.textContent = "Loading nearby requests...";
     if (refreshButton) refreshButton.disabled = true;
     try {
       const params = new URLSearchParams({ radius_km: radius.value, category: category.value, sort: sort.value });
-      const res = await fetch(`/query/list?${params.toString()}`, { cache: "no-store" });
-      const payload = await res.json();
-      if (!payload.success) {
-        showEmpty(payload.error || "Could not load nearby requests.");
-        return;
-      }
+      const { payload } = await window.NearFindFetch(`/query/list?${params.toString()}`, { cache: "no-store" });
       renderQueries(payload.data.queries);
     } catch (error) {
-      showEmpty("Could not load nearby requests. Check your connection and try again.");
+      showEmpty(error.message || "Could not load nearby requests. Check your connection and try again.");
     } finally {
       fetchingQueries = false;
       if (refreshButton) refreshButton.disabled = false;
@@ -232,5 +227,12 @@
   [radius, category, sort].forEach((el) => el.addEventListener("input", debouncedFetch));
   refreshButton?.addEventListener("click", fetchQueries);
   updateBrowserLocation().finally(fetchQueries);
-  setInterval(fetchQueries, 30000);
+  const pollTimer = setInterval(fetchQueries, 30000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) fetchQueries();
+  });
+  window.addEventListener("pagehide", () => {
+    clearTimeout(timer);
+    clearInterval(pollTimer);
+  }, { once: true });
 })();

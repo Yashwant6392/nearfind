@@ -173,6 +173,18 @@ select option { color: #111; }
 .query-detail h2 { margin: 0; font-size: 26px; line-height: 1.12; }
 .query-detail img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); }
 .filters { display: grid; grid-template-columns: 160px 1fr 160px auto; align-items: end; gap: 14px; margin-bottom: 18px; }
+.response-toolbar { display: grid; gap: 12px; margin-bottom: 14px; }
+.response-toolbar h2 { margin: 0; }
+.response-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.response-facts { display: flex; flex-wrap: wrap; gap: 8px; color: var(--body); font-size: 13px; }
+.response-facts span { padding: 5px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 999px; }
+.response-product { min-height: 42px; }
+.selected-response { display: grid; gap: 6px; padding: 10px; border: 1px solid rgba(51,209,122,.35); border-radius: 8px; }
+.response-dialog { width: min(540px, calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #151515; color: var(--white); }
+.response-dialog::backdrop { background: rgba(0,0,0,.72); }
+.response-dialog article { position: relative; padding: 26px; }
+.dialog-close { position: absolute; top: 12px; right: 14px; border: 0; background: none; color: var(--white); font-size: 28px; cursor: pointer; }
+.response-dialog .image-slot { margin: 16px 0; }
 .response-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .chat-shell { width: min(760px, 100%); margin: 0 auto; padding: 28px 0 44px; }
 .chat-header { display: flex; align-items: center; gap: 16px; padding: 14px 0 20px; }

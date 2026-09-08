@@ -34,7 +34,7 @@ This checklist records local code review results for the Flask, Supabase, Jinja,
 - [x] RLS is enabled on users, queries, and responses.
 - [x] Selection RPC locks and validates query/response state.
 - [ ] Verify production RLS and Storage policies directly in the target Supabase project.
-- [ ] Add an atomic/upsert strategy for concurrent provider response submissions.
+- [x] Handle concurrent provider response submissions through the existing unique index and conflict recovery.
 
 ## Storage
 
@@ -58,6 +58,8 @@ This checklist records local code review results for the Flask, Supabase, Jinja,
 - [x] Duplicate form submission is disabled in the browser.
 - [x] `.env` is ignored and `.env.example` contains placeholders only.
 - [x] Flask debug mode follows `FLASK_ENV`.
+- [x] Production startup fails fast when required Supabase settings are missing or `SECRET_KEY` is shorter than 32 characters.
+- [x] `/healthz` provides a deployment readiness probe without exposing configuration values.
 - [x] Waitress production startup is documented and pinned.
 - [ ] Configure production SMTP, email-confirmation policy, Auth rate limits, HTTPS, and a long random `SECRET_KEY`.
 - [ ] Verify deployment environment variables without exposing them.
@@ -70,6 +72,7 @@ This checklist records local code review results for the Flask, Supabase, Jinja,
 - [x] `node --check static/js/provider-map.js` passes.
 - [x] `node --check static/js/seeker-map.js` passes.
 - [x] `git diff --check` passes.
+- [x] Local `/healthz` readiness probe returns `200` when the configured environment is complete.
 - [ ] Run authenticated live E2E against the deployment target.
 
 ## Deployment Blockers

@@ -19,17 +19,31 @@ app.config.from_object(Config)
 logging.basicConfig(level=logging.INFO)
 
 
-def json_response(success=True, data=None, error=None, status=200, preserve_none=False):
+def json_response(success=True, data=None, error=None, status=200, preserve_none=False, error_code=None):
     payload = {"success": success}
     if success:
         payload["data"] = data if preserve_none else (data or {})
     else:
-        payload["error"] = error or "Something went wrong"
+        payload["error"] = {"code": error_code or f"http_{status}", "message": error or "Something went wrong"}
     return jsonify(payload), status
 
 
 def wants_json():
-    return request.path.startswith(("/query/", "/upload/", "/user/", "/location/", "/notifications", "/chat/"))
+    if request.is_json:
+        return True
+    api_paths = (
+        "/query/list",
+        "/query/responses/",
+        "/query/select-provider",
+        "/query/resolve",
+        "/upload/",
+        "/user/",
+        "/location/",
+        "/notifications",
+    )
+    if request.path.startswith(api_paths) or request.path == "/query/respond" and request.headers.get("Accept", "").startswith("application/json") or re.match(r"^/query/[^/]+/provider-location$", request.path):
+        return True
+    return request.path.startswith("/chat/") and request.path.count("/") >= 3
 
 
 def csrf_token():
@@ -47,7 +61,8 @@ def inject_csrf_token():
 
 def csrf_error():
     if wants_json():
-        return json_response(False, error="Invalid or missing CSRF token.", status=403)
+        # Preserve the established CSRF response for existing clients.
+        return jsonify({"success": False, "error": "Invalid or missing CSRF token."}), 403
     return render_template("error.html", message="Invalid or missing CSRF token."), 403
 
 
@@ -107,7 +122,7 @@ def login_required(fn):
     def wrapper(*args, **kwargs):
         if not session.get("user_id"):
             if wants_json():
-                return json_response(False, error="Login required", status=401)
+                return json_response(False, error="Your session has expired. Please log in again.", status=401, error_code="authentication_required")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
 
@@ -120,7 +135,7 @@ def seeker_required(fn):
     def wrapper(*args, **kwargs):
         if session.get("role") != "seeker":
             if wants_json():
-                return json_response(False, error="Seeker access required", status=403)
+                return json_response(False, error="Seeker access required", status=403, error_code="forbidden")
             return redirect(url_for("index"))
         return fn(*args, **kwargs)
 
@@ -133,7 +148,7 @@ def provider_required(fn):
     def wrapper(*args, **kwargs):
         if session.get("role") != "provider":
             if wants_json():
-                return json_response(False, error="Provider access required", status=403)
+                return json_response(False, error="Provider access required", status=403, error_code="forbidden")
             return redirect(url_for("index"))
         return fn(*args, **kwargs)
 
@@ -224,7 +239,7 @@ def selected_provider_responses(provider_id):
     try:
         return (
             table("responses")
-            .select("id,query_id")
+            .select("id,query_id,status,created_at,queries(item_name)")
             .eq("provider_id", provider_id)
             .eq("status", "selected")
             .order("created_at", desc=True)
@@ -252,6 +267,13 @@ def provider_query_eligibility(query, provider):
     if distance > float(query.get("radius_km") or 0):
         return False, "This request is outside your service radius.", 403
     return True, distance, 200
+
+
+def is_response_conflict(error):
+    if not isinstance(error, SupabaseRequestError) or error.status_code != 409:
+        return False
+    detail = str(error.message).lower()
+    return "responses_one_active_per_provider_query" in detail or "duplicate key" in detail
 
 
 NOTIFICATION_NAMESPACE = uuid.UUID("6c7e8d6f-6c8b-4f4d-9e31-1f0cf9a8d4b5")
@@ -360,28 +382,80 @@ def notify_provider_for_response(query, response):
     )
 
 
+def error_code_for(status):
+    return {
+        400: "bad_request",
+        401: "authentication_required",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        429: "rate_limited",
+        500: "internal_error",
+    }.get(status, f"http_{status}")
+
+
+def render_request_error(status, message, log_message=None, error_code=None):
+    safe_message = message
+    user_id = session.get("user_id") or "anonymous"
+    log_message = log_message or safe_message
+    if status >= 500:
+        app.logger.exception("Request failed route=%s user_id=%s error=%s", request.path, user_id, log_message)
+    else:
+        app.logger.warning("Request rejected route=%s user_id=%s status=%s error=%s", request.path, user_id, status, log_message)
+    if wants_json():
+        return jsonify({"success": False, "error": {"code": error_code or error_code_for(status), "message": safe_message}}), status
+    return render_template("error.html", message=safe_message), status
+
+
+@app.errorhandler(400)
+@app.errorhandler(401)
+@app.errorhandler(403)
+@app.errorhandler(404)
+@app.errorhandler(409)
+@app.errorhandler(429)
+def handle_http_error(error):
+    status = error.code
+    message = {
+        400: "The request could not be understood.",
+        401: "Your session has expired. Please log in again.",
+        403: "You do not have permission to access this resource.",
+        404: "The requested page or resource was not found.",
+        409: "The request conflicts with the current state.",
+        429: "Too many requests. Please wait and try again.",
+    }.get(status, "Unable to complete the request.")
+    return render_request_error(status, message, log_message=error.description, error_code=error_code_for(status))
+
+
 @app.errorhandler(Exception)
 def handle_error(error):
+    if isinstance(error, HTTPException):
+        return handle_http_error(error)
     if isinstance(error, SupabaseRequestError):
         status = error.status_code if 400 <= error.status_code < 500 else 502
         message = safe_supabase_message(error)
         log_message = error.message
     else:
-        status = 400 if isinstance(error, ValueError) else error.code if isinstance(error, HTTPException) else 500
-        message = error.description if isinstance(error, HTTPException) else str(error)
-        log_message = message
-    if status >= 500:
-        app.logger.exception("Request failed: %s", log_message)
-    else:
-        app.logger.warning("Request failed: %s", log_message)
-    if wants_json():
-        return json_response(False, error="Internal server error" if status == 500 else message, status=status)
-    return render_template("error.html", message="Something went wrong." if status == 500 else message), status
+        status = 400 if isinstance(error, ValueError) else 500
+        message = "The request could not be processed." if status == 400 else "Something went wrong. Please try again."
+        log_message = repr(error)
+    return render_request_error(status, message, log_message=log_message, error_code=error_code_for(status))
 
 
 @app.get("/favicon.ico")
 def favicon():
     return "", 204
+
+
+@app.get("/healthz")
+def healthz():
+    configured = all(
+        (
+            Config.SUPABASE_URL,
+            Config.SUPABASE_ANON_KEY,
+            Config.SUPABASE_SERVICE_ROLE_KEY,
+        )
+    )
+    return jsonify({"status": "ok" if configured else "not_ready"}), 200 if configured else 503
 
 
 @app.route("/")
@@ -717,7 +791,22 @@ def provider_dashboard():
     profile = current_profile()
     summary = provider_response_summary(session["user_id"])
     selected_responses = selected_provider_responses(session["user_id"])
-    return render_template("provider/dashboard.html", profile=profile, summary=summary, selected_responses=selected_responses)
+    location = (
+        table("provider_locations")
+        .select("sharing_enabled")
+        .eq("provider_id", session["user_id"])
+        .maybe_single()
+        .execute()
+        .data
+        or {}
+    )
+    return render_template(
+        "provider/dashboard.html",
+        profile=profile,
+        summary=summary,
+        selected_responses=selected_responses,
+        location_sharing=location.get("sharing_enabled") is True,
+    )
 
 
 @app.get("/provider/respond/<query_id>")
@@ -778,9 +867,26 @@ def query_respond():
         response_id = existing["id"]
     else:
         record.update({"id": str(uuid.uuid4()), "query_id": query_id, "provider_id": session["user_id"]})
-        table("responses").insert(record).execute()
-        response_id = record["id"]
-        notify_provider_for_response(query, record)
+        try:
+            table("responses").insert(record).execute()
+            response_id = record["id"]
+            notify_provider_for_response(query, record)
+        except SupabaseRequestError as error:
+            if not is_response_conflict(error):
+                raise
+            existing = (
+                table("responses")
+                .select("id")
+                .eq("query_id", query_id)
+                .eq("provider_id", session["user_id"])
+                .maybe_single()
+                .execute()
+                .data
+            )
+            if not existing:
+                raise
+            table("responses").update(record).eq("id", existing["id"]).execute()
+            response_id = existing["id"]
     if request.headers.get("Accept", "").startswith("application/json"):
         return json_response(data={"response_id": response_id}, status=201)
     flash("Provider response received.", "success")
@@ -844,6 +950,7 @@ def query_responses(query_id):
                 "status": row.get("status"),
                 "phone": provider.get("phone") if selected or row.get("status") == "available" else None,
                 "created_at": row.get("created_at"),
+                "location_available": bool(plat is not None and plng is not None),
             }
         )
     return json_response(data={"query": query, "responses": responses})

@@ -11,6 +11,50 @@
   window.NearFindToast = toast;
   const csrfToken = document.querySelector("meta[name='csrf-token']")?.content || "";
   window.NearFindCSRFToken = csrfToken;
+  const errorMessage = (payload, fallback = "Something went wrong. Please try again.") => {
+    const error = payload?.error;
+    if (typeof error === "string") return error;
+    return error?.message || fallback;
+  };
+  window.NearFindErrorMessage = errorMessage;
+
+  const fetchJson = async (url, options = {}, timeout = 15000) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      let payload;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        throw new Error("The server returned an invalid response.");
+      }
+      if (response.status === 401) {
+        sessionStorage.setItem("nearfind-session-message", "Your session has expired. Please log in again.");
+        window.location.assign("/login");
+        throw new Error("Your session has expired. Please log in again.");
+      }
+      if (!response.ok || payload.success === false) {
+        const failure = new Error(errorMessage(payload, `Request failed (${response.status}).`));
+        failure.status = response.status;
+        failure.payload = payload;
+        throw failure;
+      }
+      return { response, payload };
+    } catch (error) {
+      if (error.name === "AbortError") throw new Error("The request timed out. Please try again.");
+      if (error instanceof TypeError) throw new Error("Network connection failed. Please check your connection.");
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+  window.NearFindFetch = fetchJson;
+  const sessionMessage = sessionStorage.getItem("nearfind-session-message");
+  if (sessionMessage) {
+    sessionStorage.removeItem("nearfind-session-message");
+    toast(sessionMessage, "error");
+  }
 
   const notificationMenu = document.querySelector("[data-notifications]");
   if (notificationMenu) {
@@ -72,7 +116,7 @@
           if (notification.is_read) return;
           event.preventDefault();
           try {
-            await fetch(`/notifications/${notification.id}/read`, {
+            await fetchJson(`/notifications/${notification.id}/read`, {
               method: "POST",
               headers: { "X-CSRFToken": csrfToken },
             });
@@ -86,10 +130,8 @@
 
     const loadNotifications = async () => {
       if (notificationRequest) return notificationRequest;
-      notificationRequest = fetch("/notifications", { cache: "no-store" })
-        .then((response) => response.json())
-        .then((payload) => {
-          if (!payload.success) return;
+      notificationRequest = fetchJson("/notifications", { cache: "no-store" })
+        .then(({ payload }) => {
           const notifications = payload.data.notifications || [];
           const unreadCount = payload.data.unread_count || 0;
           badge.textContent = unreadCount;
@@ -97,7 +139,13 @@
           announceNewNotifications(notifications);
           renderNotifications(notifications);
         })
-        .catch(() => {})
+        .catch((error) => {
+          list.replaceChildren();
+          const empty = document.createElement("p");
+          empty.className = "empty";
+          empty.textContent = error.message;
+          list.appendChild(empty);
+        })
         .finally(() => {
           notificationRequest = undefined;
         });
@@ -136,12 +184,11 @@
   }
 
   async function postLocation(lat, lng) {
-    const res = await fetch("/user/update-location", {
+    await window.NearFindFetch("/user/update-location", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
       body: JSON.stringify({ lat, lng }),
     });
-    return res.ok;
   }
 
   document.querySelectorAll("[data-location-form]").forEach((form) => {
@@ -158,7 +205,14 @@
         const lng = position.coords.longitude.toFixed(6);
         if (latInput && !latInput.value) latInput.value = lat;
         if (lngInput && !lngInput.value) lngInput.value = lng;
-        if (document.body.dataset.loggedIn) await postLocation(lat, lng);
+        if (document.body.dataset.loggedIn) {
+          try {
+            await postLocation(lat, lng);
+          } catch (error) {
+            if (status) status.textContent = error.message || "Unable to save your location.";
+            return;
+          }
+        }
         if (status) status.textContent = "Location captured for nearby discovery.";
       },
       () => {

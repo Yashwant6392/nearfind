@@ -612,6 +612,62 @@ class SecurityTests(unittest.TestCase):
         self.assertIn("sending = false", script)
         self.assertIn('send.textContent = "Please wait..."', script)
         self.assertIn("form.dataset.submitting = \"false\"", script)
+        self.assertIn('form.dataset.submitting = "false"', script)
+
+    def test_response_comparison_frontend_handles_sorting_and_missing_values(self):
+        script_path = nearfind.__file__.replace("app.py", "static/js/seeker-map.js")
+        template_path = nearfind.__file__.replace("app.py", "templates/seeker/responses.html")
+        with open(script_path, encoding="utf-8") as script_file, open(template_path, encoding="utf-8") as template_file:
+            script = script_file.read()
+            template = template_file.read()
+        self.assertIn('option value="price"', template)
+        self.assertIn('return "Price not provided"', script)
+        self.assertIn('return "Distance unavailable"', script)
+        self.assertIn("selectingResponses.has(responseId)", script)
+        self.assertIn("No providers have responded yet", script)
+        self.assertIn('img.addEventListener("error"', script)
+
+    def test_duplicate_response_conflict_updates_existing_row_without_duplicate_notification(self):
+        query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        provider_id = "22222222-2222-4222-8222-222222222222"
+        existing_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        query = {"id": query_id, "status": "open", "seeker_id": "11111111-1111-4111-8111-111111111111", "lat": 26.7606, "lng": 83.3732, "radius_km": 5, "item_name": "Charger"}
+        existing = {"id": existing_id, "image_url": None}
+        class RaceResponseTable(FakeRowsTable):
+            def __init__(self):
+                super().__init__()
+                self.lookup_count = 0
+
+            def insert(self, payload):
+                raise nearfind.SupabaseRequestError(
+                    409,
+                    "duplicate key value violates unique constraint responses_one_active_per_provider_query",
+                )
+
+            def execute(self):
+                if self.updated:
+                    return SimpleNamespace(data=self.updated[-1])
+                if self.selected_columns:
+                    self.lookup_count += 1
+                    return SimpleNamespace(data=existing if self.lookup_count > 1 else None)
+                return SimpleNamespace(data=None)
+
+        responses = RaceResponseTable()
+        self.login_as(role="provider", user_id=provider_id)
+        with patch.object(nearfind, "expire_open_queries"), patch.object(nearfind, "get_query", return_value=query), patch.object(
+            nearfind, "current_profile", return_value={"is_active": True, "lat": 26.761, "lng": 83.374}
+        ), patch.object(nearfind, "table", side_effect=[responses, responses, responses, responses]), patch.object(
+            nearfind, "notify_provider_for_response"
+        ) as notify:
+            result = self.client.post(
+                "/query/respond",
+                data={"query_id": query_id, "message": "Updated", "price": "850", "csrf_token": "known-csrf-token"},
+                headers={"Accept": "application/json"},
+            )
+        self.assertEqual(result.status_code, 201)
+        self.assertEqual(result.json["data"]["response_id"], existing_id)
+        self.assertEqual(responses.updated[-1]["message"], "Updated")
+        notify.assert_not_called()
 
     def test_provider_can_update_only_own_latest_location(self):
         provider_id = "22222222-2222-4222-8222-222222222222"

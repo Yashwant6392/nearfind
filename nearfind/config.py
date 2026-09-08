@@ -6,8 +6,18 @@ load_dotenv()
 
 _env = os.getenv("FLASK_ENV", "development")
 _secret = os.getenv("SECRET_KEY")
-if _env == "production" and not _secret:
-    raise RuntimeError("SECRET_KEY must be configured in production")
+_required_production_settings = {
+    "SECRET_KEY": _secret,
+    "SUPABASE_URL": os.getenv("SUPABASE_URL"),
+    "SUPABASE_ANON_KEY": os.getenv("SUPABASE_ANON_KEY"),
+    "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+}
+if _env == "production":
+    missing = [name for name, value in _required_production_settings.items() if not value]
+    if missing:
+        raise RuntimeError(f"Missing production configuration: {', '.join(missing)}")
+    if len(_secret) < 32:
+        raise RuntimeError("SECRET_KEY must be at least 32 characters in production")
 
 
 class Config:

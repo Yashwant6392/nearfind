@@ -20,7 +20,27 @@
 <section class="map-layout">
   <div id="seekerMap" class="map" data-query-id="{{ query.id }}" data-lat="{{ query.lat }}" data-lng="{{ query.lng }}"></div>
   <aside>
-    <h2 id="providerCount">Waiting for responses...</h2>
+    <div class="response-toolbar">
+      <h2 id="providerCount">Waiting for responses...</h2>
+      <div class="response-controls" aria-label="Response comparison controls">
+        <label>Sort
+          <select id="responseSort">
+            <option value="best">Best match</option>
+            <option value="price">Lowest price</option>
+            <option value="distance">Nearest provider</option>
+            <option value="time">Fastest response</option>
+          </select>
+        </label>
+        <label>Filter
+          <select id="responseFilter">
+            <option value="all">All</option>
+            <option value="price">With price</option>
+            <option value="image">With image</option>
+            <option value="nearby">Nearby</option>
+          </select>
+        </label>
+      </div>
+    </div>
     <div id="responsesList" class="response-list"></div>
   </aside>
 </section>
@@ -34,8 +54,8 @@
       </div>
       <span class="status-chip" data-status></span>
     </div>
-    <p data-message></p>
-    <strong data-price></strong>
+    <p class="response-product"><strong>Offer</strong> <span data-message></span></p>
+    <p class="response-facts"><span data-price></span><span data-distance></span><span data-time></span></p>
     <p class="notice" data-location-status hidden></p>
     <div class="comparison">
       <figure>
@@ -48,6 +68,7 @@
       </figure>
     </div>
     <div class="actions">
+      <button class="btn small" data-details type="button">View Details</button>
       <button class="btn small primary" data-select>Select Provider</button>
       <a class="btn small" data-call>Call</a>
       <a class="btn small" data-whatsapp target="_blank" rel="noopener">WhatsApp</a>
@@ -56,6 +77,22 @@
     </div>
   </article>
 </template>
+<dialog id="responseDetails" class="response-dialog" aria-labelledby="responseDetailsTitle">
+  <article>
+    <button class="dialog-close" type="button" data-close-details aria-label="Close provider details">&times;</button>
+    <p class="eyebrow">Provider details</p>
+    <h2 id="responseDetailsTitle" data-detail-name></h2>
+    <p data-detail-meta class="muted"></p>
+    <p data-detail-message></p>
+    <p class="response-facts"><span data-detail-price></span><span data-detail-distance></span><span data-detail-time></span></p>
+    <div class="image-slot" data-detail-image></div>
+    <p class="notice" data-detail-location></p>
+    <div class="actions">
+      <button class="btn primary" data-detail-select type="button">Select Provider</button>
+      <a class="btn primary" data-detail-chat hidden>Chat with Provider</a>
+    </div>
+  </article>
+</dialog>
 {% endblock %}
 {% block scripts %}
 <script>

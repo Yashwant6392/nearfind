@@ -79,6 +79,8 @@ waitress-serve --listen=0.0.0.0:8000 app:app
 
 Set `FLASK_ENV=production` and use a long random `SECRET_KEY`. Do not run Flask's development server or debugger in production. Configure HTTPS at the hosting or reverse-proxy layer, and set the Supabase URL and matching public/service credentials through the deployment environment.
 
+The application returns structured JSON errors for API requests (`success: false` with an error `code` and `message`) and safe HTML error pages for normal browser requests. Unexpected failures are logged server-side with route and user context but technical details, credentials, and stack traces are never sent to the browser. Browser API calls use bounded timeouts and recoverable polling; an expired session redirects to `/login` with a session-expiry message.
+
 ## Supabase Setup
 
 1. Create a Supabase project.
@@ -91,6 +93,8 @@ Set `FLASK_ENV=production` and use a long random `SECRET_KEY`. Do not run Flask'
 6. Add storage policies allowing public reads for both buckets.
 7. Add authenticated insert policies for both buckets, or rely on the Flask server using the service-role key.
 8. Run [migrations/003_live_location.sql](migrations/003_live_location.sql) after the chat migration.
+
+Database migrations are manual and ordered: base schema, notifications, chat, then live location. The application never executes migrations automatically.
 
 For production Auth, configure custom SMTP, choose an explicit email-confirmation policy, and set Supabase Auth rate limits appropriate to expected traffic. The application does not bypass hosted Auth rate limits or create users through the Admin API.
 
