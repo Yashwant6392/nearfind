@@ -17,11 +17,21 @@
   {% if query.image_url %}<img src="{{ query.image_url }}" alt="Your product reference">{% endif %}
 </section>
 
+<section class="lifecycle" aria-label="Request progress">
+  {% set lifecycle = [("open", "Request sent"), ("matched", "Provider selected"), ("resolved", "Resolved")] %}
+  {% for state, label in lifecycle %}
+    <div class="lifecycle-step {% if query.status == state or (query.status == 'expired' and state == 'open') %}current{% elif (query.status == 'matched' and state == 'open') or query.status == 'resolved' %}complete{% endif %}">
+      <span>{{ loop.index }}</span><strong>{{ label }}</strong>
+    </div>
+    {% if not loop.last %}<i aria-hidden="true"></i>{% endif %}
+  {% endfor %}
+</section>
+
 <section class="map-layout">
-  <div id="seekerMap" class="map" data-query-id="{{ query.id }}" data-lat="{{ query.lat }}" data-lng="{{ query.lng }}"></div>
+  <div id="seekerMap" class="map" role="application" aria-label="Map of provider responses" data-query-id="{{ query.id }}" data-lat="{{ query.lat }}" data-lng="{{ query.lng }}"></div>
   <aside>
     <div class="response-toolbar">
-      <h2 id="providerCount">Waiting for responses...</h2>
+      <h2 id="providerCount" role="status" aria-live="polite">Waiting for responses...</h2>
       <div class="response-controls" aria-label="Response comparison controls">
         <label>Sort
           <select id="responseSort">

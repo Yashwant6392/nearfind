@@ -195,6 +195,69 @@
     const status = form.querySelector("#locationStatus") || document.getElementById("locationStatus");
     const latInput = form.querySelector("input[name='lat']");
     const lngInput = form.querySelector("input[name='lng']");
+    const useLocationButton = form.querySelector("#useCurrentLocation");
+    let locationCaptured = false;
+
+    const showLocationError = (error) => {
+      if (!status) return;
+      if (error?.code === 1) {
+        status.textContent = "Location permission was denied. Enter your area or landmark manually.";
+      } else if (error?.code === 3) {
+        status.textContent = "Couldn't detect your location in time. You can enter your area or landmark manually.";
+      } else {
+        status.textContent = "Couldn't detect your location. You can enter your area or landmark manually.";
+      }
+      status.classList.remove("location-ready");
+    };
+
+    const captureLocation = () => {
+      if (locationCaptured) return;
+      if (!navigator.geolocation) {
+        showLocationError();
+        return;
+      }
+      if (useLocationButton) {
+        useLocationButton.disabled = true;
+        useLocationButton.textContent = "Finding your location...";
+      }
+      if (status) status.textContent = "Waiting for your location...";
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude.toFixed(6);
+          const lng = position.coords.longitude.toFixed(6);
+          if (latInput) latInput.value = lat;
+          if (lngInput) lngInput.value = lng;
+          if (document.body.dataset.loggedIn) {
+            try {
+              await postLocation(lat, lng);
+            } catch (error) {
+              if (status) status.textContent = "Location found. It will be used for this request.";
+            }
+          }
+          locationCaptured = true;
+          if (status) {
+            status.textContent = "Location ready. Your current location will be used to find nearby providers.";
+            status.classList.add("location-ready");
+          }
+          if (useLocationButton) useLocationButton.textContent = "Location detected";
+        },
+        (error) => {
+          showLocationError(error);
+          if (useLocationButton) {
+            useLocationButton.disabled = false;
+            useLocationButton.textContent = "Use my current location";
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      );
+    };
+
+    if (useLocationButton) {
+      useLocationButton.addEventListener("click", captureLocation);
+      if (!navigator.geolocation) showLocationError();
+      return;
+    }
+
     if (!navigator.geolocation) {
       if (status) status.textContent = "Enter coordinates manually. Browser geolocation is unavailable.";
       return;
@@ -271,7 +334,7 @@
       form.querySelectorAll("button[type='submit']").forEach((button) => {
         button.disabled = true;
         button.dataset.originalText = button.textContent;
-        button.textContent = "Please wait...";
+        button.textContent = button.dataset.loadingText || "Please wait...";
       });
     });
   });

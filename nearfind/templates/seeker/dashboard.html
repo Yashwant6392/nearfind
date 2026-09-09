@@ -2,15 +2,29 @@
 {% block content %}
 <section class="dashboard-head">
   <div>
-    <p class="eyebrow">FIND · REQUEST · COMPARE · MATCH</p>
-    <h1>What do you need urgently?</h1>
+    <p class="eyebrow">Your local request desk</p>
+    <h1>What do you need help with?</h1>
+    <p class="lead">Tell nearby providers what you are looking for and compare real responses in one place.</p>
   </div>
-  <a class="btn primary" href="{{ url_for('post_query_page') }}">Find a Product</a>
+  <a class="btn primary" href="{{ url_for('post_query_page') }}">+ Start a request</a>
+</section>
+
+<section class="dashboard-hero panel">
+  <div>
+    <span class="section-kicker">Quick start</span>
+    <h2>Find it nearby, without the guesswork.</h2>
+    <p class="muted">Choose a category to start with a focused request.</p>
+  </div>
+  <div class="category-grid" aria-label="Popular categories">
+    {% for category in ["Vehicle / Transport", "Repair & Maintenance", "Home Services", "Electrical", "Plumbing", "Electronics", "Computer / IT", "Delivery / Pickup"] %}
+      <a class="category-card" href="{{ url_for('post_query_page') }}?category={{ category|urlencode }}"><span class="category-icon">{{ loop.index }}</span><span>{{ category }}</span></a>
+    {% endfor %}
+  </div>
 </section>
 
 {% for status, title in [("open", "Active Requests"), ("matched", "Matched"), ("resolved", "Completed"), ("expired", "Expired")] %}
 <section class="section-block">
-  <h2>{{ title }}</h2>
+  <div class="section-heading"><h2>{{ title }}</h2>{% if buckets.get(status) %}<span class="count-label">{{ buckets[status]|length }}</span>{% endif %}</div>
   {% if buckets.get(status) %}
     <div class="card-grid">
       {% for query in buckets[status] %}
@@ -21,7 +35,7 @@
           <h3>{{ query.item_name }}</h3>
           <p>{{ query.category }} · {{ query.urgency|replace("_", " ") }}</p>
           <p class="muted">{{ counts.get(query.id, 0) }} providers found</p>
-          <a class="btn small" href="{{ url_for('seeker_responses_page', query_id=query.id) }}">View Responses</a>
+          <a class="btn small" href="{{ url_for('seeker_responses_page', query_id=query.id) }}">View request</a>
         </div>
       </article>
       {% endfor %}

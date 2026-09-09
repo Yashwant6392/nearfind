@@ -1,40 +1,58 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="narrow wide">
-  <form class="panel form-card" method="post" action="{{ url_for('post_query') }}" enctype="multipart/form-data" data-location-form data-upload-form>
+  <form class="panel form-card request-form" method="post" action="{{ url_for('post_query') }}" enctype="multipart/form-data" data-location-form data-upload-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <p class="eyebrow">Find it nearby</p>
-    <h1>Post a product request</h1>
+    <p class="eyebrow">New request · Local discovery</p>
+    <h1>Tell us what you need</h1>
+    <p class="form-intro">A clear description helps nearby providers respond with the right option.</p>
     <div class="grid two">
-      <label>Product name<input name="item_name" placeholder="Dell 65W USB-C charger" required></label>
-      <label>Category<input name="category" placeholder="Electronics" required></label>
-      <label class="full">Description<textarea name="description" rows="4" required></textarea></label>
-      <label>Search location<input name="location" placeholder="Your area or landmark" required></label>
-      <label>Radius
-        <select name="radius_km">
+      <div class="request-section-heading full"><span>What do you need?</span></div>
+      <label for="itemName">Product or service<input id="itemName" name="item_name" placeholder="Dell 65W USB-C charger" required></label>
+      <fieldset class="category-field full">
+        <legend>What do you need help with?</legend>
+        <div class="category-options">
+          {% for category in ["Vehicle / Transport", "Home Repair", "Electronics / IT", "Home Services", "Delivery / Moving", "Cleaning", "Emergency / Urgent Help", "Other"] %}
+            <label class="category-option" for="category{{ loop.index }}">
+              <input id="category{{ loop.index }}" name="category" type="radio" value="{{ category }}" {% if request.args.get('category') == category %}checked{% endif %}{% if loop.first %} required{% endif %}>
+              <span>{{ category }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <label class="full" for="description">Tell us more<textarea id="description" name="description" rows="4" placeholder="Tell providers what you need and any details that matter." required></textarea></label>
+      <div class="request-section-heading full"><span>Where do you need help?</span></div>
+      <div class="request-location full">
+        <label for="location">Area or landmark<input id="location" name="location" placeholder="Your area, landmark or location" required></label>
+        <button class="btn location-button" id="useCurrentLocation" type="button">&#128205; Use my current location</button>
+        <div class="location-status" id="locationStatus" role="status" aria-live="polite">Waiting for location...</div>
+      </div>
+      <label for="radius">Search radius
+        <select id="radius" name="radius_km">
           <option value="2">2 km</option>
           <option value="5" selected>5 km</option>
           <option value="10">10 km</option>
           <option value="25">25 km</option>
         </select>
       </label>
-      <label>Urgency
-        <select name="urgency">
+      <div class="request-section-heading full"><span>When do you need it?</span></div>
+      <label for="urgency">Urgency
+        <select id="urgency" name="urgency">
           <option value="normal">Normal</option>
           <option value="urgent" selected>Urgent</option>
           <option value="very_urgent">Very urgent</option>
         </select>
       </label>
-      <label>Expires in
-        <select name="expiration">
+      <label for="expiration">Expires in
+        <select id="expiration" name="expiration">
           <option value="2">2 hours</option>
           <option value="6" selected>6 hours</option>
           <option value="12">12 hours</option>
           <option value="24">24 hours</option>
         </select>
       </label>
-      <label>Latitude<input name="lat" inputmode="decimal" required></label>
-      <label>Longitude<input name="lng" inputmode="decimal" required></label>
+      <input id="latitude" name="lat" type="hidden">
+      <input id="longitude" name="lng" type="hidden">
     </div>
     <label class="upload-zone">
       <input name="image" type="file" accept="image/jpeg,image/png,image/webp">
@@ -44,8 +62,7 @@
       <img class="preview" alt="">
       <button class="remove-image" type="button">Remove image</button>
     </label>
-    <div class="notice" id="locationStatus">Allow location or enter coordinates manually.</div>
-    <button class="btn primary" type="submit">Find It</button>
+    <button class="btn primary" type="submit" data-loading-text="Finding nearby help...">Find Help</button>
   </form>
 </section>
 {% endblock %}

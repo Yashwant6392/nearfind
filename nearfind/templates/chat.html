@@ -2,7 +2,7 @@
 {% block content %}
 <section class="chat-shell" data-conversation-id="{{ conversation.id }}" data-current-user="{{ session.user_id }}" data-role="{{ session.role }}" data-query-status="{{ query.status }}">
   <div class="chat-header">
-    <a class="btn small" href="{{ url_for('seeker_dashboard' if session.role == 'seeker' else 'provider_dashboard') }}">Back</a>
+    <a class="btn small" href="{{ url_for('seeker_dashboard' if session.role == 'seeker' else 'provider_dashboard') }}">Back to home</a>
     <div>
       <p class="eyebrow">NearFind conversation</p>
       <h1>{{ other.business_name or other.name or "NearFind contact" }}</h1>
@@ -16,11 +16,11 @@
   </section>
   {% endif %}
   <div id="chatMessages" class="chat-messages"><p class="empty">Loading messages...</p></div>
-  <p id="chatError" class="notice" hidden>Unable to load messages.</p>
+  <p id="chatError" class="notice" role="alert" aria-live="assertive" hidden>Unable to load messages.</p>
   <form id="chatForm" class="chat-form">
     <label class="sr-only" for="chatInput">Message</label>
     <textarea id="chatInput" rows="2" maxlength="2000" placeholder="Write a message" required></textarea>
-    <button class="btn primary" type="submit" id="chatSend">Send</button>
+    <button class="btn primary" type="submit" id="chatSend" aria-label="Send message">Send message</button>
   </form>
 </section>
 {% endblock %}

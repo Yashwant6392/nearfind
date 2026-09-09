@@ -34,9 +34,9 @@
   <div class="provider-main">
     <section class="dashboard-head compact">
       <div>
-        <p class="eyebrow">NEARBY DEMAND · AVAILABLE REQUESTS · DISTANCE · OPPORTUNITIES</p>
-        <h1>Nearby product demand</h1>
-        <p>Real open requests within each seeker radius, calculated from your saved provider location.</p>
+        <p class="eyebrow">Your provider workspace</p>
+        <h1>Nearby requests</h1>
+        <p>Review open requests near your saved location and respond when you can help.</p>
       </div>
     </section>
 
@@ -50,8 +50,13 @@
           <option value="50">50 km</option>
         </select>
       </label>
-      <label>Category
-        <input id="categoryFilter" placeholder="Any category">
+      <label for="categoryFilter">Category
+        <select id="categoryFilter">
+          <option value="">Any category</option>
+          {% for category in ["Vehicle / Transport", "Home Repair", "Electronics / IT", "Home Services", "Delivery / Moving", "Cleaning", "Emergency / Urgent Help", "Other"] %}
+            <option value="{{ category }}">{{ category }}</option>
+          {% endfor %}
+        </select>
       </label>
       <label>Sort
         <select id="sortFilter">
@@ -59,11 +64,11 @@
           <option value="urgency">Urgency</option>
         </select>
       </label>
-      <span id="demandCount" class="notice">Loading nearby requests...</span>
+      <span id="demandCount" class="notice" role="status" aria-live="polite">Loading nearby requests...</span>
     </section>
 
     <section class="provider-layout">
-      <div id="providerMap" class="map" data-lat="{{ profile.lat or '' }}" data-lng="{{ profile.lng or '' }}"></div>
+      <div id="providerMap" class="map" role="application" aria-label="Map of nearby requests" data-lat="{{ profile.lat or '' }}" data-lng="{{ profile.lng or '' }}"></div>
       <aside class="provider-results">
         <div id="queryCards" class="query-list"></div>
         <div id="queryDetail" class="query-detail empty">Select a request card or marker to inspect details.</div>

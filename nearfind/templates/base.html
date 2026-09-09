@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or "NearFind" }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -23,10 +26,11 @@
           </section>
         </div>
         {% if session.get("role") == "seeker" %}
-          <a href="{{ url_for('seeker_dashboard') }}">Dashboard</a>
-          <a class="nav-cta" href="{{ url_for('post_query_page') }}">Find a Product</a>
+          <a href="{{ url_for('seeker_dashboard') }}">Home</a>
+          <a href="{{ url_for('post_query_page') }}">New request</a>
+          <a class="nav-cta" href="{{ url_for('post_query_page') }}">Find help</a>
         {% else %}
-          <a href="{{ url_for('provider_dashboard') }}">Demand Map</a>
+          <a href="{{ url_for('provider_dashboard') }}">Nearby requests</a>
         {% endif %}
         <form class="logout-form" method="post" action="{{ url_for('logout') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
