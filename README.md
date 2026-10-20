@@ -1,13 +1,29 @@
 # NearFind — Hyperlocal Demand-Driven Discovery & Services Platform
 
-NearFind is a real-time, location-aware web platform that connects people who need urgent items, specialized services, emergency hospital beds, or on-demand rides with nearby verified providers and drivers.
+> **Find nearby products. Connect with local providers.**  
+> 🌐 **Live Demo:** [Try NearFind](https://nearfind-tk9w.onrender.com/)
+
+NearFind is a hyperlocal product discovery platform that connects people looking for products with nearby shops and local providers.
 
 Instead of waiting days for traditional e-commerce delivery or calling dozens of brick-and-mortar stores, NearFind inverts the search paradigm: seekers announce what they need, and nearby providers within a custom radius respond in minutes with real-time availability, photos, and pricing.
 
 ---
 
+## 🌐 Try It Live
+
+Visit the live application: **[https://nearfind-tk9w.onrender.com/](https://nearfind-tk9w.onrender.com/)**
+
+- **Find Products:** Post a request for a product you need.
+- **Become a Provider:** Respond to nearby product requests when you have the item available.
+- **Connect Locally:** Discover nearby providers and coordinate directly.
+
+> ⏳ **Note:** The application runs on Render's free tier, so the first request after inactivity may take around 50 seconds or longer to load.
+
+---
+
 ## Table of Contents
 
+- [Try It Live](#-try-it-live)
 - [Project Overview](#project-overview)
 - [Problem Statement & Proposed Solution](#problem-statement--proposed-solution)
 - [How It Works](#how-it-works)
@@ -379,6 +395,8 @@ NearFind is designed for deployment on modern Python hosting platforms such as *
    - `SUPABASE_SERVICE_ROLE_KEY`: *(Your Supabase Service Role Key)*
    - `PYTHON_VERSION`: `3.11.9`
 6. Click **Deploy Web Service**. Render will install dependencies, compile the application, bind Gunicorn to `$PORT`, and verify `/healthz`.
+
+> 🚀 **Live Production Deployment:** The application is live at **[https://nearfind-tk9w.onrender.com/](https://nearfind-tk9w.onrender.com/)**.
 
 ---
 
