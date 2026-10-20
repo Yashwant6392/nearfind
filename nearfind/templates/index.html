@@ -15,7 +15,7 @@
         Post what you need in seconds. Verified local shops, medical facilities, and on-demand drivers respond with direct availability and pricing so you can connect immediately.
       </p>
       <div class="hero-actions">
-        <a class="btn hero-btn-primary" href="{{ url_for('signup') }}?role=seeker">Find a Product</a>
+        <a class="btn hero-btn-primary" href="{{ url_for('signup') }}?role=seeker">Find Products</a>
         <a class="btn hero-btn-secondary" href="{{ url_for('signup') }}?role=provider">Become a Provider</a>
       </div>
     </div>
@@ -39,6 +39,45 @@
     </div>
   </div>
 </div>
+
+<section class="role-discovery-section" id="roleDiscovery" aria-labelledby="rolesTitle">
+  <div class="role-discovery-head">
+    <p class="eyebrow">Choose Your Experience</p>
+    <h2 id="rolesTitle">How do you want to use NearFind?</h2>
+    <p class="role-discovery-subtitle">Whether you are looking for an urgent product or running a local store, NearFind connects you instantly.</p>
+  </div>
+  <div class="role-discovery-grid">
+    <article class="role-card seeker-card">
+      <div class="role-card-badge">For Buyers &amp; Seekers</div>
+      <div class="role-card-icon" aria-hidden="true">&#128269;</div>
+      <h3>Find Products</h3>
+      <p class="role-card-desc">
+        Need an urgent laptop charger, spare part, medication, or tool right now? Broadcast your request to verified local shops and providers nearby.
+      </p>
+      <ul class="role-card-perks">
+        <li><span>&#10003;</span> Post requests in seconds with your preferred search radius (1–50 km)</li>
+        <li><span>&#10003;</span> AI visual comparison verifies actual in-stock product photos</li>
+        <li><span>&#10003;</span> In-app chat, direct calling, and turn-by-turn directions</li>
+      </ul>
+      <a class="btn hero-btn-primary role-card-btn" href="{{ url_for('signup') }}?role=seeker">Find Products Now &rarr;</a>
+    </article>
+
+    <article class="role-card provider-card">
+      <div class="role-card-badge">For Stores &amp; Providers</div>
+      <div class="role-card-icon" aria-hidden="true">&#127978;</div>
+      <h3>Become a Provider</h3>
+      <p class="role-card-desc">
+        Operate a brick-and-mortar shop or offer specialized local supplies? Unlock real-time neighborhood demand from buyers ready to purchase.
+      </p>
+      <ul class="role-card-perks">
+        <li><span>&#10003;</span> Live interactive demand map displaying active customer requests</li>
+        <li><span>&#10003;</span> Respond with your price, authentic product photo, and notes</li>
+        <li><span>&#10003;</span> Drive local foot traffic and direct sales with zero setup fees</li>
+      </ul>
+      <a class="btn hero-btn-secondary role-card-btn" href="{{ url_for('signup') }}?role=provider">Become a Provider &rarr;</a>
+    </article>
+  </div>
+</section>
 
 <section class="features-section" aria-labelledby="featuresTitle">
   <div class="features-head">

@@ -56,8 +56,9 @@
           <button type="submit">Logout</button>
         </form>
       {% else %}
-        <a href="{{ url_for('login') }}">Login</a>
-        <a href="{{ url_for('driver_demo_page') }}">Driver demo</a>
+        <a class="nav-link" href="{{ url_for('signup') }}?role=seeker">Find Products</a>
+        <a class="nav-link" href="{{ url_for('signup') }}?role=provider">Become a Provider</a>
+        <a class="nav-link nav-login" href="{{ url_for('login') }}">Login</a>
         <a class="nav-cta" href="{{ url_for('signup') }}">Get Started</a>
       {% endif %}
     </nav>
