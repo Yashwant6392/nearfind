@@ -1,8 +1,9 @@
 import os
 from datetime import timedelta
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 _env = os.getenv("FLASK_ENV", "development")
 _secret = os.getenv("SECRET_KEY")

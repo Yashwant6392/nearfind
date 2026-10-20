@@ -1,0 +1,728 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow wide driver-onboarding-page" style="max-width: 960px; margin: 0 auto; padding-bottom: 40px;">
+  <div class="panel form-card driver-onboarding-form" style="border: 1px solid var(--lime-border); background: var(--surface); border-radius: 16px; padding: 28px 32px; box-shadow: var(--shadow);">
+    
+    <!-- Header with Verification Status Chip -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 22px; border-bottom: 1px solid var(--line-subtle); padding-bottom: 18px;">
+      <div>
+        <p class="eyebrow" style="color: var(--lime); font-size: 12px; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;">Driver Partner · Verification Portal</p>
+        <h1 style="margin: 4px 0 6px; font-size: 26px; font-weight: 800; color: #FFFFFF;">Driver profile and verification</h1>
+        <p class="form-intro" style="margin: 0; color: var(--muted); font-size: 14.5px;">Add information about your driving experience, vehicle, and documents. A trusted reviewer must independently verify your profile before you can receive requests.</p>
+      </div>
+      <div style="text-align: right;">
+        {% if driver_profile %}
+          <span class="status-chip {{ 'matched' if driver_profile.verification_status == 'approved' else ('expired' if driver_profile.verification_status in ['rejected', 'suspended'] else 'open') }}" style="font-size: 13px; padding: 6px 14px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; display: inline-block;">
+            {{ driver_profile.verification_status|replace("_", " ")|title }}
+          </span>
+          {% if driver_profile.reviewed_at %}
+            <span class="muted" style="display: block; font-size: 11.5px; margin-top: 4px;">Reviewed {{ driver_profile.reviewed_at[:10] }}</span>
+          {% endif %}
+        {% else %}
+          <span class="status-chip open" style="font-size: 12px; padding: 5px 12px;">Not Started</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Onboarding Progression Timeline -->
+    <div class="onboarding-steps" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid var(--line-subtle);">
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--lime); color: #061A18; display: grid; place-items: center; font-weight: 800; font-size: 13px;">1</div>
+        <div>
+          <div style="font-weight: 700; font-size: 13px; color: var(--heading);">1. Profile &amp; Documents</div>
+          <div style="font-size: 12px; color: var(--muted);">Experience, vehicle &amp; IDs</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: {% if driver_profile and driver_profile.verification_status in ['under_review', 'approved'] %}var(--lime){% else %}var(--panel-border){% endif %}; color: {% if driver_profile and driver_profile.verification_status in ['under_review', 'approved'] %}#061A18{% else %}var(--muted){% endif %}; display: grid; place-items: center; font-weight: 800; font-size: 13px;">2</div>
+        <div>
+          <div style="font-weight: 700; font-size: 13px; color: var(--heading);">2. Trusted Review</div>
+          <div style="font-size: 12px; color: var(--muted);">Independent verification</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: {% if driver_profile and driver_profile.verification_status == 'approved' %}var(--green){% else %}var(--panel-border){% endif %}; color: {% if driver_profile and driver_profile.verification_status == 'approved' %}#061A18{% else %}var(--muted){% endif %}; display: grid; place-items: center; font-weight: 800; font-size: 13px;">3</div>
+        <div>
+          <div style="font-weight: 700; font-size: 13px; color: var(--heading);">3. Active Driving</div>
+          <div style="font-size: 12px; color: var(--muted);">Publish availability &amp; trips</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security & Privacy Notice -->
+    <aside class="preliminary-notice" role="note" style="margin-bottom: 24px; padding: 14px 18px; background: rgba(197,243,107,0.06); border: 1px solid var(--lime-border); border-radius: 10px; font-size: 13px; line-height: 1.5;">
+      <strong style="color: var(--lime);">Identity &amp; Licence Verification Notice:</strong>
+      Only upload documents via secure private storage; NearFind does not upload documents to public storage or expose credentials. A trusted reviewer must independently verify identity and licence evidence before approval.
+    </aside>
+
+    <!-- Profile Completeness Summary Checklist -->
+    {% set has_exp = driver_profile and driver_profile.experience_years is not none %}
+    {% set has_lic = driver_profile and driver_profile.licence_category %}
+    {% set has_rad = driver_profile and driver_profile.service_radius_km %}
+    {% set has_veh = parsed_bio and parsed_bio.vehicle_details %}
+    {% set has_photo = parsed_bio and parsed_bio.photo_url %}
+    {% set has_id_doc = doc_status_map and doc_status_map.identity %}
+    {% set has_lic_doc = doc_status_map and doc_status_map.driving_license %}
+    {% set completed_count = (1 if has_exp else 0) + (1 if has_lic else 0) + (1 if has_rad else 0) + (1 if has_veh else 0) + (1 if has_photo else 0) + (1 if has_id_doc else 0) + (1 if has_lic_doc else 0) %}
+    {% set total_fields = 7 %}
+    {% set pct = ((completed_count / total_fields) * 100)|round|int %}
+
+    <div class="profile-completeness-card" style="margin-bottom: 24px; padding: 16px 20px; background: rgba(0, 0, 0, 0.28); border: 1px solid var(--line-subtle); border-radius: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+        <div>
+          <strong style="color: #FFFFFF; font-size: 14px;">Profile Completion: {{ completed_count }}/{{ total_fields }} Requirements Met ({{ pct }}%)</strong>
+          <span class="muted" style="font-size: 12px; display: block; margin-top: 2px;">
+            {% if pct == 100 %}
+              All required fields and documents uploaded. Awaiting reviewer decision.
+            {% else %}
+              Please complete incomplete fields below to submit for verification.
+            {% endif %}
+          </span>
+        </div>
+        <span class="status-chip {{ 'matched' if pct == 100 else 'open' }}" style="font-size: 11px;">
+          {{ "Ready for Review" if pct == 100 else ("Incomplete Profile (" ~ (total_fields - completed_count) ~ " missing)") }}
+        </span>
+      </div>
+      <!-- Progress Bar -->
+      <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin-bottom: 14px;">
+        <div style="width: {{ pct }}%; height: 100%; background: {% if pct == 100 %}var(--green){% else %}var(--lime){% endif %}; transition: width 0.3s ease;"></div>
+      </div>
+      <!-- Field Status Badges -->
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px;">
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: {% if has_exp %}rgba(197,243,107,0.1){% else %}rgba(255,255,255,0.05){% endif %}; color: {% if has_exp %}var(--lime){% else %}var(--muted){% endif %};">
+          {{ "✓" if has_exp else "○" }} Experience
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: {% if has_lic %}rgba(197,243,107,0.1){% else %}rgba(255,255,255,0.05){% endif %}; color: {% if has_lic %}var(--lime){% else %}var(--muted){% endif %};">
+          {{ "✓" if has_lic else "○" }} Licence Category
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: {% if has_rad %}rgba(197,243,107,0.1){% else %}rgba(255,255,255,0.05){% endif %}; color: {% if has_rad %}var(--lime){% else %}var(--muted){% endif %};">
+          {{ "✓" if has_rad else "○" }} Service Radius
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: {% if has_veh %}rgba(197,243,107,0.1){% else %}rgba(255,255,255,0.05){% endif %}; color: {% if has_veh %}var(--lime){% else %}var(--muted){% endif %};">
+          {{ "✓" if has_veh else "○" }} Vehicle Details
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: {% if has_photo %}rgba(197,243,107,0.1){% else %}rgba(255,255,255,0.05){% endif %}; color: {% if has_photo %}var(--lime){% else %}var(--muted){% endif %};">
+          {{ "✓" if has_photo else "○" }} Profile Photo
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: {% if has_id_doc %}rgba(197,243,107,0.1){% else %}rgba(255,255,255,0.05){% endif %}; color: {% if has_id_doc %}var(--lime){% else %}var(--muted){% endif %};">
+          {{ "✓" if has_id_doc else "○" }} Aadhaar / Identity
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: {% if has_lic_doc %}rgba(197,243,107,0.1){% else %}rgba(255,255,255,0.05){% endif %}; color: {% if has_lic_doc %}var(--lime){% else %}var(--muted){% endif %};">
+          {{ "✓" if has_lic_doc else "○" }} Driving Licence
+        </span>
+      </div>
+    </div>
+
+    {% if driver_profile %}
+    <section class="driver-profile-status" aria-label="Saved driver profile status" style="margin-bottom: 24px; padding: 14px 18px; background: rgba(0,0,0,0.22); border-radius: 10px; border: 1px solid var(--line-subtle);">
+      <h2 style="font-size: 15px; margin: 0 0 6px; color: #FFFFFF;">Saved profile</h2>
+      <p style="margin: 0; font-size: 13.5px;">Verification status: <strong>{{ driver_profile.verification_status|replace("_", " ")|title }}</strong></p>
+      {% if driver_profile.review_notes %}
+      <p style="color: var(--gold); font-size: 13px; margin: 6px 0 0;">Reviewer note: {{ driver_profile.review_notes }}</p>
+      {% endif %}
+      {% if driver_profile.verification_status == 'approved' %}
+      <div style="margin-top: 10px;">
+        <a class="btn primary small" href="{{ url_for('provider_driver_availability') }}">Go to Driver Availability &amp; Trip Console →</a>
+      </div>
+      {% endif %}
+    </section>
+    {% else %}
+    <p class="notice" style="margin-bottom: 24px;">No driver profile has been saved yet.</p>
+    {% endif %}
+
+    <!-- Connected Driver Account Details & Profile Photo Section -->
+    <div style="display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; padding: 18px 22px; background: rgba(0,0,0,0.25); border: 1px solid var(--line-subtle); border-radius: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+      <!-- Profile Photo Circle with Live Upload and Preview -->
+      <div style="text-align: center;">
+        <div id="photoAvatarWrap" style="width: 84px; height: 84px; border-radius: 50%; overflow: hidden; border: 2.5px solid var(--lime); background: #0E2E29; display: grid; place-items: center; margin: 0 auto 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+          {% if parsed_bio and parsed_bio.photo_url %}
+            <img id="profilePhotoImg" src="{{ parsed_bio.photo_url }}" alt="Driver Profile Photo" style="width: 100%; height: 100%; object-fit: cover;">
+          {% else %}
+            <div id="profilePhotoPlaceholder" style="font-size: 36px; color: var(--lime);">👤</div>
+          {% endif %}
+        </div>
+        <label for="profilePhotoInput" class="btn small ghost" style="padding: 3px 10px; font-size: 11px; cursor: pointer; display: inline-block;">
+          Change Photo
+          <input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" style="display: none;">
+        </label>
+        <button id="uploadPhotoBtn" type="button" class="btn small primary" style="display: none; padding: 3px 8px; font-size: 11px; margin-top: 4px;">Upload</button>
+        <div id="photoUploadFeedback" style="font-size: 11px; margin-top: 4px;"></div>
+      </div>
+
+      <!-- Account Contact Details -->
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+          <div>
+            <strong style="color: #FFFFFF; font-size: 16px; display: block;">{{ profile.name or "Driver Partner" }}</strong>
+            <span class="muted" style="font-size: 13px; display: block; margin-top: 2px;">
+              📞 {{ profile.phone or "Contact not set" }}
+              {% if profile.email %} · ✉️ {{ profile.email }}{% endif %}
+            </span>
+            {% if profile.address %}
+              <span class="muted" style="font-size: 12px; display: block; margin-top: 2px;">📍 {{ profile.address }}</span>
+            {% endif %}
+          </div>
+          <span class="status-chip {{ 'matched' if has_photo else 'open' }}" id="photoStatusChip" style="font-size: 11px;">
+            {{ "Photo Uploaded" if has_photo else "Photo Not Uploaded" }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Profile & Vehicle Form -->
+    <form id="driverProfileForm" method="post" action="{{ url_for('provider_driver_onboarding_submit') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="photo_url" id="photoUrlField" value="{{ parsed_bio.photo_url if parsed_bio else '' }}">
+
+      <div class="grid two driver-onboarding-grid" style="gap: 16px;">
+        <label for="experienceYears">Driving experience (years)
+          <input id="experienceYears" name="experience_years" type="number" min="0" max="60" step="1" value="{{ driver_profile.experience_years if driver_profile else '' }}" placeholder="e.g. 5" required>
+          <span class="field-hint">Total years of professional driving experience</span>
+        </label>
+        <label for="licenceCategory">Licence category
+          <input id="licenceCategory" name="licence_category" type="text" maxlength="40" value="{{ driver_profile.licence_category if driver_profile else '' }}" placeholder="For example, LMV or HMV" required>
+          <span class="field-hint">Category only. Do not enter a licence number.</span>
+        </label>
+        <label for="languages">Languages spoken
+          <input id="languages" name="languages" type="text" maxlength="200" value="{{ driver_profile.languages|join(', ') if driver_profile and driver_profile.languages else '' }}" placeholder="For example, Hindi, English, Kannada">
+          <span class="field-hint">Helps passengers communicate comfortably</span>
+        </label>
+        <label for="serviceRadius">Service radius (km)
+          <input id="serviceRadius" name="service_radius_km" type="number" min="0.01" max="200" step="any" value="{{ driver_profile.service_radius_km if driver_profile else '25' }}" required>
+          <span class="field-hint">Maximum driving range from your operating base (max 200 km)</span>
+        </label>
+
+        <!-- Vehicle Details Field -->
+        <label class="full" for="vehicleDetails">Vehicle details
+          <input id="vehicleDetails" name="vehicle_details" type="text" maxlength="200" value="{{ parsed_bio.vehicle_details if parsed_bio else '' }}" placeholder="e.g. Maruti Dzire 2022 (Sedan), Commercial Plate DL 1Z 1234">
+          <span class="field-hint">Make, model, type, and vehicle classification (helps seekers identify your car)</span>
+        </label>
+
+        <!-- Bio & Notes -->
+        <label class="full" for="bio">Short bio &amp; service summary
+          <textarea id="bio" name="bio" rows="3" maxlength="1500" placeholder="Briefly describe the driving services you offer, vehicle features (AC, luggage space), and operational hours.">{{ parsed_bio.bio if parsed_bio else (driver_profile.bio if driver_profile else '') }}</textarea>
+          <span class="field-hint">Visible to seekers once a booking is confirmed</span>
+        </label>
+      </div>
+
+      <!-- Verification Documents Section -->
+      <section id="documentsSection" class="driver-documents-section" style="margin: 26px 0; padding: 22px 24px; background: rgba(0, 0, 0, 0.24); border: 1px solid var(--line-subtle); border-radius: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
+          <div>
+            <h2 style="font-size: 17px; margin: 0 0 4px; color: #FFFFFF;">Identity &amp; Licence Documents</h2>
+            <p class="muted" style="font-size: 13px; margin: 0 0 16px;">
+              Upload clear photos or PDF scans of your Aadhaar/Identity card and Driving Licence. Permitted formats: JPG, PNG, PDF (max 5 MB each). Stored strictly in private storage with signed URL reviewer access.
+            </p>
+          </div>
+        </div>
+
+        <!-- Document Status Overview Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 20px;">
+          
+          <!-- Identity Document Status Card -->
+          {% set id_doc = doc_status_map.identity if doc_status_map else None %}
+          <div style="padding: 14px 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--line-subtle); border-radius: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <strong style="color: #FFFFFF; font-size: 13.5px;">Aadhaar / Identity Document</strong>
+              <span class="status-chip {{ 'matched' if id_doc and id_doc.status == 'approved' else ('expired' if id_doc and id_doc.status in ['rejected', 'needs_resubmission'] else ('open' if id_doc else 'expired')) }}" style="font-size: 10.5px;">
+                {{ id_doc.status|replace("_", " ")|title if id_doc else "Not Uploaded" }}
+              </span>
+            </div>
+            {% if id_doc %}
+              <span class="muted" style="font-size: 12px; display: block;">Uploaded {{ id_doc.submitted_at[:10] if id_doc.submitted_at else "" }}</span>
+              {% if id_doc.review_notes %}
+                <p style="margin: 4px 0 0; font-size: 11.5px; color: var(--gold);">Note: {{ id_doc.review_notes }}</p>
+              {% endif %}
+              {% if id_doc.signed_url %}
+                <div style="margin-top: 8px;">
+                  <a href="{{ id_doc.signed_url }}" class="btn small ghost" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; padding: 3px 8px;">View Document ↗</a>
+                </div>
+              {% endif %}
+            {% else %}
+              <span class="muted" style="font-size: 12px; display: block;">Government issued Aadhaar or voter card required.</span>
+            {% endif %}
+            <div style="margin-top: 12px; border-top: 1px solid var(--line-subtle); padding-top: 10px;">
+              <label for="identityDoc" style="font-size: 12px; font-weight: 600; color: #FFFFFF; display: block; margin-bottom: 4px;">Upload New Document File</label>
+              <input id="identityDoc" name="identity_document" type="file" accept="image/jpeg,image/png,application/pdf" style="font-size: 12px;">
+              <span class="selected-filename muted" id="identityDocName" style="font-size: 11.5px; display: block; margin-top: 4px;"></span>
+              <button type="button" class="btn small ghost" id="ajaxUploadIdBtn" style="display: none; margin-top: 6px; font-size: 11px;">Upload Identity File</button>
+            </div>
+          </div>
+
+          <!-- Driving Licence Status Card -->
+          {% set lic_doc = doc_status_map.driving_license if doc_status_map else None %}
+          <div style="padding: 14px 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--line-subtle); border-radius: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <strong style="color: #FFFFFF; font-size: 13.5px;">Driving Licence Document</strong>
+              <span class="status-chip {{ 'matched' if lic_doc and lic_doc.status == 'approved' else ('expired' if lic_doc and lic_doc.status in ['rejected', 'needs_resubmission'] else ('open' if lic_doc else 'expired')) }}" style="font-size: 10.5px;">
+                {{ lic_doc.status|replace("_", " ")|title if lic_doc else "Not Uploaded" }}
+              </span>
+            </div>
+            {% if lic_doc %}
+              <span class="muted" style="font-size: 12px; display: block;">Uploaded {{ lic_doc.submitted_at[:10] if lic_doc.submitted_at else "" }}</span>
+              {% if lic_doc.review_notes %}
+                <p style="margin: 4px 0 0; font-size: 11.5px; color: var(--gold);">Note: {{ lic_doc.review_notes }}</p>
+              {% endif %}
+              {% if lic_doc.signed_url %}
+                <div style="margin-top: 8px;">
+                  <a href="{{ lic_doc.signed_url }}" class="btn small ghost" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; padding: 3px 8px;">View Document ↗</a>
+                </div>
+              {% endif %}
+            {% else %}
+              <span class="muted" style="font-size: 12px; display: block;">Valid commercial or personal driving licence scan required.</span>
+            {% endif %}
+            <div style="margin-top: 12px; border-top: 1px solid var(--line-subtle); padding-top: 10px;">
+              <label for="licenseDoc" style="font-size: 12px; font-weight: 600; color: #FFFFFF; display: block; margin-bottom: 4px;">Upload New Licence File</label>
+              <input id="licenseDoc" name="driving_license_document" type="file" accept="image/jpeg,image/png,application/pdf" style="font-size: 12px;">
+              <span class="selected-filename muted" id="licenseDocName" style="font-size: 11.5px; display: block; margin-top: 4px;"></span>
+              <button type="button" class="btn small ghost" id="ajaxUploadLicBtn" style="display: none; margin-top: 6px; font-size: 11px;">Upload Licence File</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Feedback Banner -->
+      <div id="profileSaveFeedback" style="display: none; padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 13.5px;"></div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 32px;">
+        <button class="btn primary" type="submit" id="saveDriverProfileBtn">Save driver profile &amp; documents</button>
+        {% if driver_profile and driver_profile.verification_status == 'approved' %}
+          <a class="btn ghost" href="{{ url_for('provider_driver_requests') }}">View Driver Assignments</a>
+          <a class="btn ghost" href="{{ url_for('provider_driver_availability') }}">Update Availability Console</a>
+        {% endif %}
+      </div>
+    </form>
+
+    <!-- Availability & Location-Sharing Section -->
+    <section id="availabilitySection" class="driver-availability-section" style="border-top: 1px solid var(--line-subtle); padding-top: 24px; margin-top: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+        <div>
+          <h2 style="font-size: 18px; font-weight: 800; color: #FFFFFF; margin: 0 0 4px;">Driver Availability &amp; Live Location</h2>
+          <p class="muted" style="font-size: 13.5px; margin: 0;">Configure your availability window and device GPS sharing for incoming trip requests.</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          {% if driver_profile and driver_profile.verification_status == 'approved' and driver_profile.is_active %}
+            <span class="status-chip {{ 'available' if availability and availability.is_active else 'open' }}" id="availabilityStatusChip" style="font-size: 11.5px;">
+              {{ "Published" if availability and availability.is_active else "Not Published" }}
+            </span>
+          {% else %}
+            <span class="status-chip open" style="font-size: 11.5px;">Verification Pending to Publish</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if driver_profile and driver_profile.verification_status == 'approved' and driver_profile.is_active %}
+        <form class="driver-availability-form panel" method="post" action="{{ url_for('provider_driver_availability') }}" style="padding: 18px 20px; background: rgba(0,0,0,0.2); border-radius: 12px; border: 1px solid var(--line-subtle);">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input id="availabilityTimezoneOffset" name="timezone_offset_minutes" type="hidden">
+          <input type="hidden" name="next" value="{{ url_for('provider_driver_onboarding_page') }}#availabilitySection">
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 12px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--line-subtle); flex-wrap: wrap; gap: 10px;">
+            <div>
+              <strong style="color: #FFFFFF; font-size: 13.5px; display: block;">Live Availability Publishing</strong>
+              <span id="availabilityToggleStatusText" class="muted" style="font-size: 12px;">
+                {{ "Schedule is active and visible to nearby seekers." if availability and availability.is_active else "Schedule is inactive. Set window and publish below." }}
+              </span>
+            </div>
+            <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0; cursor: pointer;">
+              <input type="checkbox" id="driverAvailabilityToggle" {% if availability and availability.is_active %}checked{% endif %} style="opacity: 0; width: 0; height: 0;">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="grid two" style="gap: 14px; margin-bottom: 16px;">
+            <label for="availabilityStart">Available from
+              <input id="availabilityStart" name="starts_at" type="datetime-local" value="{{ availability.starts_at[:16] if availability and availability.starts_at else '' }}" required>
+            </label>
+            <label for="availabilityEnd">Available until
+              <input id="availabilityEnd" name="ends_at" type="datetime-local" value="{{ availability.ends_at[:16] if availability and availability.ends_at else '' }}" required>
+            </label>
+          </div>
+
+          <label class="driver-location-consent" for="sharingEnabled" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer;">
+            <input id="sharingEnabled" name="sharing_enabled" type="checkbox" {% if location and location.sharing_enabled %}checked{% endif %}>
+            <span style="font-weight: 600; color: #FFFFFF;">Share my current location to appear in nearby driver discovery</span>
+          </label>
+          <p class="muted" style="font-size: 12px; margin-bottom: 14px;">Current saved sharing setting: <strong id="sharingSettingLabel" style="color: {{ 'var(--lime)' if location and location.sharing_enabled else 'var(--muted)' }};">{{ "On" if location and location.sharing_enabled else "Off" }}</strong>{% if location and location.updated_at %} · Updated {{ location.updated_at[:16] }}{% endif %}</p>
+
+          <div class="grid two" style="gap: 14px; margin-bottom: 16px;">
+            <label for="driverLatitude">Current latitude
+              <input id="driverLatitude" name="lat" type="number" min="-90" max="90" step="any" value="{{ location.lat if location and location.lat is not none else (profile.lat if profile.lat is not none else '') }}" inputmode="decimal">
+            </label>
+            <label for="driverLongitude">Current longitude
+              <input id="driverLongitude" name="lng" type="number" min="-180" max="180" step="any" value="{{ location.lng if location and location.lng is not none else (profile.lng if profile.lng is not none else '') }}" inputmode="decimal">
+            </label>
+          </div>
+
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <button class="btn ghost small" type="button" id="useDriverCurrentLocation">Refresh shared location from this device</button>
+            <button class="btn primary small" type="submit" id="publishAvailabilityBtn">
+              {{ "Update Availability" if availability and availability.is_active else "Publish Availability" }}
+            </button>
+          </div>
+          <p class="location-status muted" id="driverAvailabilityStatus" role="status" aria-live="polite" style="font-size: 12px; margin-top: 8px;">
+            {{ "Location sharing is enabled. Fresh coordinates are used for discovery." if location and location.sharing_enabled else "Turn location sharing on before refreshing. Fresh coordinates are required for discovery." }}
+          </p>
+        </form>
+      {% else %}
+        <div class="availability-locked-card" style="padding: 18px 20px; background: rgba(0,0,0,0.2); border-radius: 12px; border: 1px solid var(--line-subtle);">
+          <div style="display: flex; align-items: flex-start; gap: 14px; margin-bottom: 10px;">
+            <span style="font-size: 26px; line-height: 1;" aria-hidden="true">🔒</span>
+            <div style="flex: 1;">
+              {% if not driver_profile %}
+                <strong style="color: #FFFFFF; font-size: 14px; display: block; margin-bottom: 4px;">Profile incomplete — availability publishing unlocks after profile completion and approval</strong>
+                <p class="muted" style="margin: 0 0 10px; font-size: 13px;">
+                  Please complete and save your driver profile above (years of experience, licence category, languages, and service radius) before submitting verification documents.
+                </p>
+                <a href="#driverProfileForm" class="btn small primary" style="display: inline-block;">Complete Profile Above ↑</a>
+              {% elif not doc_status_map.identity or not doc_status_map.driving_license %}
+                <strong style="color: #FFFFFF; font-size: 14px; display: block; margin-bottom: 4px;">Verification documents required — availability publishing unlocks after approval</strong>
+                <p class="muted" style="margin: 0 0 10px; font-size: 13px;">
+                  Your driver profile has been saved, but required verification documents (Aadhaar/Identity card and Driving Licence) must be uploaded for reviewer verification.
+                </p>
+                <a href="#documentsSection" class="btn small primary" style="display: inline-block;">Upload Verification Documents ↑</a>
+              {% elif driver_profile.verification_status in ['pending', 'under_review'] %}
+                <strong style="color: #FFFFFF; font-size: 14px; display: block; margin-bottom: 4px;">Verification pending — availability publishing unlocks after approval</strong>
+                <p class="muted" style="margin: 0 0 10px; font-size: 13px;">
+                  Your profile and documents are under review by an authorized reviewer. Publishing your live availability schedule and accepting passenger requests unlocks automatically once your identity and licence are verified.
+                </p>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <a href="#documentsSection" class="btn small ghost">Review Submitted Documents</a>
+                  <a href="#driverProfileForm" class="btn small ghost">View Driver Profile</a>
+                </div>
+              {% elif driver_profile.verification_status == 'rejected' %}
+                <strong style="color: #FF7B7B; font-size: 14px; display: block; margin-bottom: 4px;">Verification rejected — availability publishing locked</strong>
+                <p class="muted" style="margin: 0 0 10px; font-size: 13px;">
+                  {{ driver_profile.review_notes or "Your profile verification was not approved. Please review requirements and update your documents or details." }}
+                </p>
+                <a href="#driverProfileForm" class="btn small ghost">Update Profile &amp; Documents</a>
+              {% else %}
+                <strong style="color: #FFFFFF; font-size: 14px; display: block; margin-bottom: 4px;">Availability publishing locked</strong>
+                <p class="muted" style="margin: 0 0 10px; font-size: 13px;">
+                  An active, approved driver profile is required to publish live availability and accept passenger requests.
+                </p>
+                <a href="#driverProfileForm" class="btn small ghost">Review Driver Profile</a>
+              {% endif %}
+            </div>
+          </div>
+          <div style="padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 12.5px; color: var(--muted); margin-top: 10px;">
+            Saved account coordinates: <strong style="color: var(--lime);">{{ profile.lat|round(4) if profile.lat else "Not set" }}, {{ profile.lng|round(4) if profile.lng else "Not set" }}</strong>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+  </div>
+</section>
+
+<script>
+(function() {
+  const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || "";
+
+  // 1. File input label preview handlers
+  const idInput = document.getElementById('identityDoc');
+  const idName = document.getElementById('identityDocName');
+  const idBtn = document.getElementById('ajaxUploadIdBtn');
+  if (idInput && idName) {
+    idInput.addEventListener('change', () => {
+      if (idInput.files[0]) {
+        idName.textContent = `Selected: ${idInput.files[0].name} (${(idInput.files[0].size / 1024 / 1024).toFixed(2)} MB)`;
+        if (idBtn) idBtn.style.display = 'inline-block';
+      } else {
+        idName.textContent = '';
+        if (idBtn) idBtn.style.display = 'none';
+      }
+    });
+  }
+
+  const licInput = document.getElementById('licenseDoc');
+  const licName = document.getElementById('licenseDocName');
+  const licBtn = document.getElementById('ajaxUploadLicBtn');
+  if (licInput && licName) {
+    licInput.addEventListener('change', () => {
+      if (licInput.files[0]) {
+        licName.textContent = `Selected: ${licInput.files[0].name} (${(licInput.files[0].size / 1024 / 1024).toFixed(2)} MB)`;
+        if (licBtn) licBtn.style.display = 'inline-block';
+      } else {
+        licName.textContent = '';
+        if (licBtn) licBtn.style.display = 'none';
+      }
+    });
+  }
+
+  // 2. Profile Photo Upload Handler
+  const photoInput = document.getElementById('profilePhotoInput');
+  const uploadPhotoBtn = document.getElementById('uploadPhotoBtn');
+  const photoFeedback = document.getElementById('photoUploadFeedback');
+  const photoUrlField = document.getElementById('photoUrlField');
+  const avatarWrap = document.getElementById('photoAvatarWrap');
+  const photoStatusChip = document.getElementById('photoStatusChip');
+
+  if (photoInput) {
+    photoInput.addEventListener('change', () => {
+      if (photoInput.files[0]) {
+        if (photoFeedback) photoFeedback.textContent = `Ready: ${photoInput.files[0].name}`;
+        if (uploadPhotoBtn) uploadPhotoBtn.style.display = 'inline-block';
+      }
+    });
+  }
+
+  if (uploadPhotoBtn && photoInput) {
+    uploadPhotoBtn.addEventListener('click', async () => {
+      const file = photoInput.files[0];
+      if (!file) return;
+      uploadPhotoBtn.disabled = true;
+      uploadPhotoBtn.textContent = 'Uploading...';
+      if (photoFeedback) photoFeedback.textContent = 'Uploading photo to secure storage...';
+
+      const formData = new FormData();
+      formData.append('photo', file);
+      formData.append('csrf_token', csrfToken);
+
+      try {
+        const resp = await fetch('/provider/driver-photo/upload', {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          body: formData,
+        });
+        const res = await resp.json();
+        if (res.success && res.data && res.data.photo_url) {
+          if (photoUrlField) photoUrlField.value = res.data.photo_url;
+          // Update preview ONLY after successful server upload
+          if (avatarWrap) {
+            avatarWrap.innerHTML = `<img id="profilePhotoImg" src="${res.data.photo_url}" alt="Driver Profile Photo" style="width: 100%; height: 100%; object-fit: cover;">`;
+          }
+          if (photoStatusChip) {
+            photoStatusChip.textContent = 'Photo Uploaded';
+            photoStatusChip.className = 'status-chip matched';
+          }
+          if (photoFeedback) {
+            photoFeedback.style.color = 'var(--lime)';
+            photoFeedback.textContent = '✓ Profile photo uploaded successfully!';
+          }
+          uploadPhotoBtn.style.display = 'none';
+        } else {
+          throw new Error(res.error || 'Photo upload failed');
+        }
+      } catch (err) {
+        if (photoFeedback) {
+          photoFeedback.style.color = 'var(--gold)';
+          photoFeedback.textContent = `Upload error: ${err.message}`;
+        }
+      } finally {
+        uploadPhotoBtn.disabled = false;
+        uploadPhotoBtn.textContent = 'Upload';
+      }
+    });
+  }
+
+  // 3. Document Asynchronous Uploads
+  async function uploadVerificationDoc(fileInput, docType, btnEl, feedbackEl) {
+    const file = fileInput.files[0];
+    if (!file) return;
+    btnEl.disabled = true;
+    const origText = btnEl.textContent;
+    btnEl.textContent = 'Uploading...';
+
+    const formData = new FormData();
+    formData.append('document', file);
+    formData.append('verification_type', docType);
+    formData.append('csrf_token', csrfToken);
+
+    try {
+      const resp = await fetch('/provider/driver-document/upload', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: formData,
+      });
+      const res = await resp.json();
+      if (res.success) {
+        feedbackEl.style.color = 'var(--lime)';
+        feedbackEl.textContent = `✓ ${docType.replace('_', ' ').toUpperCase()} uploaded successfully! Under review.`;
+        btnEl.style.display = 'none';
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        throw new Error(res.error || 'Document upload failed');
+      }
+    } catch (err) {
+      feedbackEl.style.color = 'var(--gold)';
+      feedbackEl.textContent = `Error: ${err.message}`;
+    } finally {
+      btnEl.disabled = false;
+      btnEl.textContent = origText;
+    }
+  }
+
+  if (idBtn && idInput) {
+    idBtn.addEventListener('click', () => uploadVerificationDoc(idInput, 'identity', idBtn, idName));
+  }
+  if (licBtn && licInput) {
+    licBtn.addEventListener('click', () => uploadVerificationDoc(licInput, 'driving_license', licBtn, licName));
+  }
+
+  // 4. Timezone offset initialization for availability form
+  const tzOffsetInput = document.getElementById('availabilityTimezoneOffset');
+  if (tzOffsetInput) {
+    tzOffsetInput.value = new Date().getTimezoneOffset();
+  }
+
+  // 5. Availability Toggle Handler
+  const availToggle = document.getElementById('driverAvailabilityToggle');
+  const availChip = document.getElementById('availabilityStatusChip');
+  const availToggleText = document.getElementById('availabilityToggleStatusText');
+  const publishBtn = document.getElementById('publishAvailabilityBtn');
+  if (availToggle) {
+    availToggle.addEventListener('change', async () => {
+      const active = availToggle.checked;
+      availToggle.disabled = true;
+      if (availToggleText) availToggleText.textContent = active ? 'Activating availability…' : 'Pausing availability…';
+
+      try {
+        const resp = await fetch('/provider/driver-availability/toggle', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+          },
+          body: JSON.stringify({ active }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          if (active) {
+            if (availChip) {
+              availChip.className = 'status-chip available';
+              availChip.textContent = 'Published';
+            }
+            if (availToggleText) availToggleText.textContent = 'Schedule is active and visible to nearby seekers.';
+            if (publishBtn) publishBtn.textContent = 'Update Availability';
+          } else {
+            if (availChip) {
+              availChip.className = 'status-chip open';
+              availChip.textContent = 'Not Published';
+            }
+            if (availToggleText) availToggleText.textContent = 'Schedule is paused. Set window and publish below.';
+            if (publishBtn) publishBtn.textContent = 'Publish Availability';
+          }
+        } else {
+          throw new Error(res.error || 'Failed to update availability status.');
+        }
+      } catch (err) {
+        availToggle.checked = !active;
+        if (availToggleText) availToggleText.textContent = `Error: ${err.message}`;
+      } finally {
+        availToggle.disabled = false;
+      }
+    });
+  }
+
+  // 6. Sharing Consent Checkbox Listener
+  const sharingConsent = document.getElementById('sharingEnabled');
+  const sharingLabel = document.getElementById('sharingSettingLabel');
+  const availStatus = document.getElementById('driverAvailabilityStatus');
+  if (sharingConsent) {
+    sharingConsent.addEventListener('change', () => {
+      if (sharingLabel) {
+        sharingLabel.textContent = sharingConsent.checked ? 'On' : 'Off';
+        sharingLabel.style.color = sharingConsent.checked ? 'var(--lime)' : 'var(--muted)';
+      }
+      if (availStatus) {
+        availStatus.className = 'location-status muted';
+        availStatus.textContent = sharingConsent.checked
+          ? 'Location sharing is enabled. Fresh coordinates are used for discovery.'
+          : 'Location sharing is disabled. Turn location sharing on before refreshing. Fresh coordinates are required for discovery.';
+      }
+    });
+  }
+
+  // 7. GPS Refresh Handler for approved drivers
+  const useCurrentLocationBtn = document.getElementById('useDriverCurrentLocation');
+  const latInput = document.getElementById('driverLatitude');
+  const lngInput = document.getElementById('driverLongitude');
+  if (useCurrentLocationBtn && latInput && lngInput) {
+    useCurrentLocationBtn.addEventListener('click', () => {
+      if (!sharingConsent || !sharingConsent.checked) {
+        if (availStatus) {
+          availStatus.className = 'location-status unavailable';
+          availStatus.textContent = 'Location sharing is disabled. Turn location sharing on before refreshing coordinates.';
+        }
+        return;
+      }
+      if (!navigator.geolocation) {
+        if (availStatus) {
+          availStatus.className = 'location-status unavailable';
+          availStatus.textContent = 'Geolocation is not supported by your browser. Enter coordinates manually.';
+        }
+        return;
+      }
+
+      useCurrentLocationBtn.disabled = true;
+      if (availStatus) {
+        availStatus.className = 'location-status';
+        availStatus.textContent = 'Acquiring GPS fix from device...';
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const latVal = pos.coords.latitude.toFixed(6);
+          const lngVal = pos.coords.longitude.toFixed(6);
+          latInput.value = latVal;
+          lngInput.value = lngVal;
+
+          if (availStatus) {
+            availStatus.className = 'location-status';
+            availStatus.textContent = 'Saving refreshed coordinates to server...';
+          }
+
+          try {
+            const formData = new FormData();
+            formData.set('csrf_token', csrfToken);
+            formData.set('sharing_enabled', 'on');
+            formData.set('lat', latVal);
+            formData.set('lng', lngVal);
+
+            const response = await fetch('/provider/driver-location', {
+              method: 'POST',
+              headers: { Accept: 'application/json' },
+              body: formData,
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+              throw new Error(result.error?.message || result.error || 'The location could not be refreshed.');
+            }
+            if (availStatus) {
+              availStatus.className = 'location-status available';
+              availStatus.textContent = `✓ Coordinates refreshed and saved (${latVal}, ${lngVal}). Live discovery is active.`;
+            }
+          } catch (err) {
+            if (availStatus) {
+              availStatus.className = 'location-status unavailable';
+              availStatus.textContent = err.message || 'Could not save coordinates to server.';
+            }
+          } finally {
+            useCurrentLocationBtn.disabled = false;
+          }
+        },
+        (err) => {
+          useCurrentLocationBtn.disabled = false;
+          if (availStatus) {
+            availStatus.className = 'location-status unavailable';
+            if (err.code === 1) {
+              availStatus.textContent = 'Location permission denied. Please allow location access in your browser settings.';
+            } else if (err.code === 2) {
+              availStatus.textContent = 'GPS position unavailable. Please enter coordinates manually.';
+            } else if (err.code === 3) {
+              availStatus.textContent = 'GPS acquisition timed out. Please try again.';
+            } else {
+              availStatus.textContent = 'Unable to acquire GPS coordinates.';
+            }
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+  }
+
+})();
+</script>
+{% endblock %}

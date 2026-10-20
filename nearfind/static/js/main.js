@@ -177,9 +177,27 @@
     });
     updateDesktopButton();
     loadNotifications();
+
+    let userActive = true;
+    let idlePollCount = 0;
+    const MAX_IDLE_POLLS = 10;
+    const markActive = () => {
+      userActive = true;
+      idlePollCount = 0;
+    };
+    ["mousemove", "keydown", "scroll", "touchstart", "click"].forEach((evt) => {
+      window.addEventListener(evt, markActive, { passive: true });
+    });
+
     const notificationTimer = setInterval(() => {
-      if (!document.hidden) loadNotifications();
-    }, 10000);
+      if (document.hidden) return;
+      if (!userActive) {
+        idlePollCount++;
+        if (idlePollCount >= MAX_IDLE_POLLS) return; // pause background polling while user is completely idle
+      }
+      userActive = false;
+      loadNotifications();
+    }, 30000);
     window.addEventListener("pagehide", () => clearInterval(notificationTimer), { once: true });
   }
 
@@ -196,93 +214,132 @@
     const latInput = form.querySelector("input[name='lat']");
     const lngInput = form.querySelector("input[name='lng']");
     const useLocationButton = form.querySelector("#useCurrentLocation");
-    let locationCaptured = false;
 
-    const showLocationError = (error) => {
+    const setStatus = (msg, stateClass = "") => {
       if (!status) return;
-      if (error?.code === 1) {
-        status.textContent = "Location permission was denied. Enter your area or landmark manually.";
-      } else if (error?.code === 3) {
-        status.textContent = "Couldn't detect your location in time. You can enter your area or landmark manually.";
-      } else {
-        status.textContent = "Couldn't detect your location. You can enter your area or landmark manually.";
-      }
-      status.classList.remove("location-ready");
+      status.textContent = msg;
+      status.classList.remove("location-ready", "location-denied", "location-error");
+      if (stateClass) status.classList.add(stateClass);
     };
 
+    const validateCoords = () => {
+      if (!latInput || !lngInput) return true;
+      const latVal = latInput.value.trim();
+      const lngVal = lngInput.value.trim();
+      if (!latVal && !lngVal) {
+        latInput.setCustomValidity("");
+        lngInput.setCustomValidity("");
+        return true;
+      }
+      if (!latVal || !lngVal) {
+        if (!latVal) latInput.setCustomValidity("Both latitude and longitude are required if coordinates are provided.");
+        if (!lngVal) lngInput.setCustomValidity("Both latitude and longitude are required if coordinates are provided.");
+        return false;
+      }
+      const latNum = parseFloat(latVal);
+      const lngNum = parseFloat(lngVal);
+      let valid = true;
+      if (isNaN(latNum) || latNum < -90 || latNum > 90) {
+        latInput.setCustomValidity("Latitude must be a valid number between -90 and 90.");
+        valid = false;
+      } else {
+        latInput.setCustomValidity("");
+      }
+      if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
+        lngInput.setCustomValidity("Longitude must be a valid number between -180 and 180.");
+        valid = false;
+      } else {
+        lngInput.setCustomValidity("");
+      }
+      return valid;
+    };
+
+    if (latInput) latInput.addEventListener("input", validateCoords);
+    if (lngInput) lngInput.addEventListener("input", validateCoords);
+
+    // If coordinates are already prefilled (e.g. from session), validate and indicate ready state
+    if (latInput && lngInput && latInput.value.trim() && lngInput.value.trim()) {
+      const latNum = parseFloat(latInput.value.trim());
+      const lngNum = parseFloat(lngInput.value.trim());
+      if (Number.isFinite(latNum) && Number.isFinite(lngNum) && latNum >= -90 && latNum <= 90 && lngNum >= -180 && lngNum <= 180) {
+        setStatus(`Saved location active (${latNum.toFixed(4)}, ${lngNum.toFixed(4)}) ✓`, "location-ready");
+        if (useLocationButton) useLocationButton.textContent = "Refresh Location";
+      }
+    }
+
     const captureLocation = () => {
-      if (locationCaptured) return;
       if (!navigator.geolocation) {
-        showLocationError();
+        setStatus("Unable to detect location: Geolocation is not supported by your browser. Please enter coordinates manually.", "location-error");
         return;
       }
       if (useLocationButton) {
         useLocationButton.disabled = true;
-        useLocationButton.textContent = "Finding your location...";
+        useLocationButton.textContent = "Getting your location…";
       }
-      if (status) status.textContent = "Waiting for your location...";
+      setStatus("Waiting for location permission…");
+
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const lat = position.coords.latitude.toFixed(6);
           const lng = position.coords.longitude.toFixed(6);
-          if (latInput) latInput.value = lat;
-          if (lngInput) lngInput.value = lng;
+          if (latInput) {
+            latInput.value = lat;
+            latInput.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          if (lngInput) {
+            lngInput.value = lng;
+            lngInput.dispatchEvent(new Event("input", { bubbles: true }));
+          }
           if (document.body.dataset.loggedIn) {
             try {
               await postLocation(lat, lng);
-            } catch (error) {
-              if (status) status.textContent = "Location found. It will be used for this request.";
+            } catch (_) {
+              // non-blocking
             }
           }
-          locationCaptured = true;
-          if (status) {
-            status.textContent = "Location ready. Your current location will be used to find nearby providers.";
-            status.classList.add("location-ready");
-          }
-          if (useLocationButton) useLocationButton.textContent = "Location detected";
-        },
-        (error) => {
-          showLocationError(error);
+          setStatus(`Location detected (${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}) ✓`, "location-ready");
           if (useLocationButton) {
             useLocationButton.disabled = false;
-            useLocationButton.textContent = "Use my current location";
+            useLocationButton.textContent = "Location detected ✓";
           }
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+        (error) => {
+          if (useLocationButton) {
+            useLocationButton.disabled = false;
+            useLocationButton.textContent = "Use My Current Location";
+          }
+          if (error && error.code === 1) { // PERMISSION_DENIED
+            setStatus("Location permission denied. Enter coordinates manually below or enable location in browser settings.", "location-denied");
+          } else if (error && error.code === 2) { // POSITION_UNAVAILABLE
+            setStatus("Location unavailable from device. Please enter coordinates manually below.", "location-error");
+          } else if (error && error.code === 3) { // TIMEOUT
+            setStatus("Location request timed out. Please retry or enter coordinates manually below.", "location-error");
+          } else {
+            setStatus("Unable to detect location. You can enter coordinates manually below.", "location-error");
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
       );
     };
 
     if (useLocationButton) {
-      useLocationButton.addEventListener("click", captureLocation);
-      if (!navigator.geolocation) showLocationError();
-      return;
+      useLocationButton.addEventListener("click", (e) => {
+        e.preventDefault();
+        captureLocation();
+      });
     }
 
-    if (!navigator.geolocation) {
-      if (status) status.textContent = "Enter coordinates manually. Browser geolocation is unavailable.";
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude.toFixed(6);
-        const lng = position.coords.longitude.toFixed(6);
-        if (latInput && !latInput.value) latInput.value = lat;
-        if (lngInput && !lngInput.value) lngInput.value = lng;
-        if (document.body.dataset.loggedIn) {
-          try {
-            await postLocation(lat, lng);
-          } catch (error) {
-            if (status) status.textContent = error.message || "Unable to save your location.";
-            return;
-          }
-        }
-        if (status) status.textContent = "Location captured for nearby discovery.";
-      },
-      () => {
-        if (status) status.textContent = "Location permission was denied. Enter coordinates manually.";
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    form.addEventListener("submit", (e) => {
+      if (!validateCoords()) {
+        e.preventDefault();
+        if (form.dataset.submitting === "true") delete form.dataset.submitting;
+        form.querySelectorAll("button[type='submit']").forEach((btn) => {
+          btn.disabled = false;
+          if (btn.dataset.originalText) btn.textContent = btn.dataset.originalText;
+        });
+        toast("Please provide valid coordinates (-90 to 90 lat, -180 to 180 lng) or clear both fields.", "error");
+      }
+    });
   });
 
   document.querySelectorAll("[data-upload-form] .upload-zone").forEach((zone) => {

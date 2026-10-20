@@ -3,32 +3,70 @@
 <section class="narrow wide">
   <form class="panel form-card" method="post" action="{{ url_for('auth_signup') }}" data-location-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <p class="eyebrow">Start nearby discovery</p>
-    <h1>Create your account</h1>
+    <div>
+      <p class="eyebrow">Start Nearby Discovery</p>
+      <h1>Create your account</h1>
+      <p class="muted" style="margin: 4px 0 0;">Join NearFind as a seeker to discover products, or as a verified provider to fulfill nearby demand.</p>
+    </div>
     <div class="grid two">
-      <label>Name<input name="name" required></label>
-      <label>Email<input name="email" type="email" required></label>
-      <label>Password<input name="password" type="password" minlength="6" required></label>
-      <label>Phone<input name="phone" type="tel" required></label>
-      <label class="full">Address<input name="address" required></label>
-      <label>Role
+      <label>Full Name
+        <input name="name" placeholder="Alice Johnson" required>
+      </label>
+      <label>Email Address
+        <input name="email" type="email" placeholder="alice@example.com" required>
+      </label>
+      <label>Password (min. 6 characters)
+        <input name="password" type="password" minlength="6" placeholder="••••••••" required>
+      </label>
+      <label>Phone Number
+        <input name="phone" type="tel" placeholder="+91 98765 43210" required>
+      </label>
+      <label class="full">Address
+        <input name="address" placeholder="Street, locality, area" required>
+      </label>
+      <label>Account Role
         <select name="role" id="roleSelect" required>
-          <option value="seeker">Seeker</option>
-          <option value="provider">Provider</option>
+          <option value="seeker">Seeker (Search & Request)</option>
+          <option value="provider">Provider (Sell & Offer)</option>
         </select>
       </label>
       <label id="providerTypeWrap">Provider type
         <select name="provider_type">
-          <option value="shop">Shop</option>
-          <option value="individual">Individual</option>
+          <option value="shop">Shop / Store</option>
+          <option value="individual">Individual Provider</option>
         </select>
       </label>
-      <label id="businessWrap" class="full">Business name<input name="business_name"></label>
-      <label>Latitude<input name="lat" inputmode="decimal" placeholder="Auto or manual"></label>
-      <label>Longitude<input name="lng" inputmode="decimal" placeholder="Auto or manual"></label>
+      <label id="businessWrap" class="full">Business Name
+        <input name="business_name" placeholder="Store or business display name">
+      </label>
     </div>
-    <div class="notice" id="locationStatus">Location helps NearFind show real nearby demand.</div>
-    <button class="btn primary" type="submit">Create Account</button>
+    <div class="location-box" style="margin-top: 14px; padding: 16px; background: rgba(16, 45, 41, 0.6); border: 1px solid var(--lime-border); border-radius: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+        <div>
+          <strong style="color: var(--text-main); font-size: 0.95rem;">Location for Nearby Discovery</strong>
+          <p class="muted" style="font-size: 0.82rem; margin: 2px 0 0;">Used to connect you with nearby products, shops, and emergency services.</p>
+        </div>
+        <button type="button" id="useCurrentLocation" class="btn small" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(197, 243, 107, 0.15); border: 1px solid var(--lime); color: var(--lime); font-weight: 700;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+          Use My Current Location
+        </button>
+      </div>
+      <div class="notice" id="locationStatus" role="status" aria-live="polite" style="background: rgba(197, 243, 107, 0.08); padding: 9px 12px; border-radius: 6px; border: 1px solid var(--lime-border); font-size: 0.86rem; margin-bottom: 12px;">
+        Click <strong>Use My Current Location</strong> or enter coordinates manually below.
+      </div>
+      <div class="grid two">
+        <label>Latitude (-90 to 90)
+          <input name="lat" id="latInput" type="number" step="any" min="-90" max="90" inputmode="decimal" placeholder="e.g. 12.9716">
+        </label>
+        <label>Longitude (-180 to 180)
+          <input name="lng" id="lngInput" type="number" step="any" min="-180" max="180" inputmode="decimal" placeholder="e.g. 77.5946">
+        </label>
+      </div>
+      <p class="muted" style="font-size: 0.78rem; margin: 6px 0 0;">Location coordinates are optional at signup if permission is denied. You can update your location anytime from your dashboard.</p>
+    </div>
+    <button class="btn primary" type="submit" style="width: 100%; margin-top: 14px;">Complete Registration</button>
+    <p class="muted" style="text-align: center; margin: 8px 0 0;">Already have an account? <a href="{{ url_for('login') }}" style="color: var(--lime); font-weight: 600;">Sign in here</a></p>
   </form>
 </section>
 {% endblock %}
+

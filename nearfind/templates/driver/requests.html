@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard-head compact">
+  <div>
+    <p class="eyebrow">Approved drivers · Operations Console</p>
+    <h1>Driver Trips and Assignments</h1>
+    <p>Manage your accepted driving tasks, update trip progression, and review open nearby requests.</p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('provider_driver_availability') }}">Update Availability</a>
+    <a class="btn" href="{{ url_for('provider_driver_onboarding_page') }}">Driver Profile</a>
+  </div>
+</section>
+
+{% if active_bookings %}
+<section class="section-block" style="margin-bottom: 32px;">
+  <div class="section-heading">
+    <h2>Active Bookings & Assignments</h2>
+    <span class="count-label">{{ active_bookings|length }}</span>
+  </div>
+  <div class="driver-request-list">
+    {% for booking in active_bookings %}
+    <article class="panel driver-request-card" style="border-left: 4px solid var(--gold);">
+      <div class="driver-request-card-head">
+        <div>
+          <p class="eyebrow">Assigned Passenger: {{ booking.users.name if booking.users else "Seeker" }}</p>
+          <h2>{{ booking.driver_requests.pickup_address if booking.driver_requests else "Pickup" }} → {{ booking.driver_requests.destination_address if booking.driver_requests else "Destination" }}</h2>
+        </div>
+        <span class="status-chip {{ 'available' if booking.status == 'in_progress' else 'selected' }}">
+          {{ booking.status|replace("_", " ")|title }}
+        </span>
+      </div>
+
+      <dl class="driver-request-summary">
+        <div><dt>Passenger Contact</dt><dd>{% if booking.users and booking.users.phone %}<a href="tel:{{ booking.users.phone }}">{{ booking.users.phone }}</a>{% else %}Not available{% endif %}</dd></div>
+        <div><dt>Scheduled Start</dt><dd>{{ booking.start_at }}</dd></div>
+        <div><dt>Estimated Duration</dt><dd>{{ booking.driver_requests.duration_minutes if booking.driver_requests else 60 }} mins</dd></div>
+        <div><dt>Amenities</dt><dd>{{ booking.driver_requests.amenities|join(", ") if booking.driver_requests and booking.driver_requests.amenities else "Standard" }}</dd></div>
+      </dl>
+
+      <div class="actions" style="margin-top: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        {% if booking.status == "accepted" %}
+        <form method="post" action="{{ url_for('provider_update_driver_booking_status', booking_id=booking.id) }}" style="display: inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="status" value="in_progress">
+          <button class="btn primary" type="submit">Start Trip (In Transit)</button>
+        </form>
+        <form method="post" action="{{ url_for('provider_cancel_driver_booking', booking_id=booking.id) }}" style="display: inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn ghost" type="submit" onclick="return confirm('Are you sure you want to cancel this booking?');">Cancel Assignment</button>
+        </form>
+        {% elif booking.status == "in_progress" %}
+        <form method="post" action="{{ url_for('provider_update_driver_booking_status', booking_id=booking.id) }}" style="display: inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="status" value="completed">
+          <button class="btn primary" type="submit">Complete Trip</button>
+        </form>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section-block">
+  <div class="section-heading">
+    <h2>Eligible Nearby Requests</h2>
+    {% if requests %}<span class="count-label">{{ requests|length }}</span>{% endif %}
+  </div>
+  <div class="driver-request-list">
+    {% for item in requests %}
+    <article class="panel driver-request-card">
+      <div class="driver-request-card-head">
+        <div><p class="eyebrow">Request from {{ item.seeker_name }}</p><h2>{{ item.pickup_address }} to {{ item.destination_address }}</h2></div>
+        <span class="status-chip open">{{ item.distance_km|round(1) }} km away</span>
+      </div>
+      <dl class="driver-request-summary">
+        <div><dt>Starts</dt><dd>{{ item.requested_start }}</dd></div>
+        <div><dt>Duration</dt><dd>{{ item.duration_minutes }} minutes</dd></div>
+        <div><dt>Amenities</dt><dd>{{ item.amenities|join(", ") if item.amenities else "None requested" }}</dd></div>
+      </dl>
+      <form method="post" action="{{ url_for('provider_accept_driver_request', request_id=item.request_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn primary" type="submit">Accept and create booking</button>
+      </form>
+    </article>
+    {% else %}
+    <div class="panel empty">No currently eligible driver requests were found for your saved availability and shared location.</div>
+    {% endfor %}
+  </div>
+</section>
+
+{% if past_bookings %}
+<section class="section-block" style="margin-top: 36px;">
+  <div class="section-heading">
+    <h2>Past Completed / Closed Trips</h2>
+    <span class="count-label">{{ past_bookings|length }}</span>
+  </div>
+  <div class="driver-request-list">
+    {% for booking in past_bookings %}
+    <article class="panel driver-request-card" style="opacity: 0.85;">
+      <div class="driver-request-card-head">
+        <div>
+          <p class="eyebrow">{{ booking.start_at }}</p>
+          <h3>{{ booking.driver_requests.pickup_address if booking.driver_requests else "Trip" }} → {{ booking.driver_requests.destination_address if booking.driver_requests else "" }}</h3>
+        </div>
+        <span class="status-chip {{ 'available' if booking.status == 'completed' else 'expired' }}">
+          {{ booking.status|replace("_", " ")|title }}
+        </span>
+      </div>
+      {% if booking.cancellation_reason %}
+      <p class="muted" style="font-size: 13px;">Reason: {{ booking.cancellation_reason }}</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

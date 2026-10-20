@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow wide">
+  <div class="panel form-card">
+    <header class="dashboard-head compact">
+      <div>
+        <p class="eyebrow">Hospital Onboarding</p>
+        <h1>Register Hospital Profile</h1>
+        <p class="muted">Register your hospital facility to report verified emergency and specialized bed availability.</p>
+      </div>
+    </header>
+
+    <form method="post" action="{{ url_for('hospital_onboarding') }}" data-location-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="grid two">
+        <label class="full" for="hospitalName">Hospital / Facility Name
+          <input id="hospitalName" name="name" type="text" maxlength="160" placeholder="e.g. City General Hospital" required>
+        </label>
+
+        <label class="full" for="hospitalAddress">Full Street Address
+          <input id="hospitalAddress" name="address" type="text" maxlength="300" placeholder="e.g. 124 Medical Enclave, Civil Lines" required>
+        </label>
+
+        <label for="hospitalPhone">Emergency Contact Phone
+          <input id="hospitalPhone" name="phone" type="tel" maxlength="30" placeholder="e.g. +91 9876543210" required>
+        </label>
+
+        <div>
+          <button class="btn location-button full" id="useCurrentLocation" type="button" style="margin-top: 24px;">&#128205; Use Current GPS Location</button>
+          <div id="locationStatus" class="muted" style="font-size: 13px; margin-top: 4px;">Set accurate coordinates for patient distance discovery.</div>
+        </div>
+
+        <label for="latitude">Facility Latitude
+          <input id="latitude" name="lat" type="number" step="any" min="-90" max="90" placeholder="e.g. 26.7606" required>
+        </label>
+
+        <label for="longitude">Facility Longitude
+          <input id="longitude" name="lng" type="number" step="any" min="-180" max="180" placeholder="e.g. 83.3732" required>
+        </label>
+      </div>
+
+      <div style="margin-top: 24px;">
+        <h2>Initial Available Bed Counts</h2>
+        <p class="muted">Enter currently available verified beds for emergency intake.</p>
+        <div class="grid two">
+          {% for field, label in [
+            ('general_available', 'General Beds'),
+            ('icu_available', 'ICU Beds'),
+            ('oxygen_available', 'Oxygen-Supported Beds'),
+            ('emergency_available', 'Emergency / Trauma Beds'),
+            ('isolation_available', 'Isolation / Infection Beds')
+          ] %}
+          <label for="{{ field }}">{{ label }}
+            <input id="{{ field }}" name="{{ field }}" type="number" min="0" step="1" value="0" required>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top: 24px;">
+        <button class="btn primary" type="submit">Complete Hospital Onboarding</button>
+        <a class="btn ghost" href="{{ url_for('index') }}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

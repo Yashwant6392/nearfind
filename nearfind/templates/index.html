@@ -1,31 +1,101 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <div class="hero-copy">
-    <p class="eyebrow">Hyperlocal product search</p>
-    <h1>Need something nearby?<br>Find who has it right now.</h1>
-    <p>Post what you need. Nearby shops and providers respond. Compare availability and go directly to the right place.</p>
-    <div class="actions">
-      <a class="btn primary" href="{{ url_for('signup') }}?role=seeker">Find a Product</a>
-      <a class="btn ghost" href="{{ url_for('signup') }}?role=provider">Become a Provider</a>
+<div class="hero-band">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <div class="hero-eyebrow-wrap">
+        <span class="hero-eyebrow-dot" aria-hidden="true"></span>
+        <span class="hero-eyebrow-text">Hyperlocal Discovery & Instant Verification</span>
+      </div>
+      <h1 class="hero-heading">
+        Need something nearby?<br>
+        <span class="hero-heading-focus">Find who has it right now.<span class="hero-lime-line" aria-hidden="true"></span></span>
+      </h1>
+      <p class="hero-description">
+        Post what you need in seconds. Verified local shops, medical facilities, and on-demand drivers respond with direct availability and pricing so you can connect immediately.
+      </p>
+      <div class="hero-actions">
+        <a class="btn hero-btn-primary" href="{{ url_for('signup') }}?role=seeker">Find a Product</a>
+        <a class="btn hero-btn-secondary" href="{{ url_for('signup') }}?role=provider">Become a Provider</a>
+      </div>
+    </div>
+    <div class="map-preview" aria-label="NearFind live map preview">
+      <div class="preview-grid" aria-hidden="true"></div>
+      <span class="marker blue" title="Your location"></span>
+      <span class="marker lime pulse one" title="Verified shop with item"></span>
+      <span class="marker teal two" title="Nearby partner"></span>
+      <div class="preview-card" role="region" aria-label="Sample availability response">
+        <div class="preview-card-header">
+          <span class="preview-pill">Sample Verified Response</span>
+          <span class="preview-distance">1.4 km away</span>
+        </div>
+        <strong class="preview-item">Dell 65W USB-C Charger</strong>
+        <span class="preview-shop">Verified Electronics Store</span>
+        <div class="preview-card-footer">
+          <span class="preview-price">₹850 in stock</span>
+          <span class="preview-status">&#10003; Ready for pickup</span>
+        </div>
+      </div>
     </div>
   </div>
-  <div class="map-preview" aria-label="NearFind live map preview">
-    <div class="preview-grid"></div>
-    <span class="marker blue"></span>
-    <span class="marker yellow pulse one"></span>
-    <span class="marker green two"></span>
-    <div class="preview-card">
-      <strong>Dell 65W USB-C Charger</strong>
-      <span>1.4 km away</span>
-      <span class="price">Rs 850 available</span>
-    </div>
+</div>
+
+<section class="features-section" aria-labelledby="featuresTitle">
+  <div class="features-head">
+    <p class="eyebrow">Platform Capabilities</p>
+    <h2 id="featuresTitle">Built for fast local coordination</h2>
+    <p>From urgently needed store inventory to medical bed holds and vetted driver routing.</p>
+  </div>
+  <div class="features-grid">
+    <article class="feature-card">
+      <div class="feature-icon-wrap" aria-hidden="true">&#128269;</div>
+      <span class="feature-tag">Hyperlocal Search</span>
+      <h3>Local Products</h3>
+      <p>Broadcast urgent product needs to nearby verified stores within your chosen radius. Receive direct availability, pricing, and shop locations.</p>
+    </article>
+    <article class="feature-card">
+      <div class="feature-icon-wrap" aria-hidden="true">&#128247;</div>
+      <span class="feature-tag">Vision AI</span>
+      <h3>AI Image Matching</h3>
+      <p>Compare seeker reference photos with provider stock photos using lightweight MobileNetV3 embeddings and cosine similarity scoring.</p>
+    </article>
+    <article class="feature-card">
+      <div class="feature-icon-wrap" aria-hidden="true">&#127973;</div>
+      <span class="feature-tag">Emergency Care</span>
+      <h3>Emergency Beds</h3>
+      <p>Search verified hospital availability for ICU, Oxygen, Isolation, and Emergency beds with real-time 2-hour holds to secure critical care.</p>
+    </article>
+    <article class="feature-card">
+      <div class="feature-icon-wrap" aria-hidden="true">&#128663;</div>
+      <span class="feature-tag">Live GPS</span>
+      <h3>Driver Tracking</h3>
+      <p>Book verified and reviewed on-demand drivers with live GPS coordinate sharing, status lifecycle management, and in-app navigation.</p>
+    </article>
   </div>
 </section>
 
-<section class="steps">
-  <article><span>1</span><h2>Post what you need</h2><p>Add a reference image, urgency and search radius.</p></article>
-  <article><span>2</span><h2>Nearby providers respond</h2><p>Open requests appear on a live provider map.</p></article>
-  <article><span>3</span><h2>Compare, choose and go</h2><p>Select a provider, call, WhatsApp or get directions.</p></article>
+<section class="steps-section" aria-labelledby="stepsTitle">
+  <div class="steps-head">
+    <p class="eyebrow">Simple Workflow</p>
+    <h2 id="stepsTitle">How NearFind Works</h2>
+    <p>Three straightforward steps to solve local problems fast.</p>
+  </div>
+  <div class="steps">
+    <article class="step-card">
+      <span class="step-num">1</span>
+      <h3>Post what you need</h3>
+      <p>Specify the item, attach an optional reference image, set urgency, and define your search radius.</p>
+    </article>
+    <article class="step-card">
+      <span class="step-num">2</span>
+      <h3>Nearby providers respond</h3>
+      <p>Local shops and providers see active demand on their map and submit immediate offers with photos and prices.</p>
+    </article>
+    <article class="step-card">
+      <span class="step-num">3</span>
+      <h3>Compare, choose and go</h3>
+      <p>Review AI similarity estimates, select the best provider, chat, call, WhatsApp, or navigate directly.</p>
+    </article>
+  </div>
 </section>
 {% endblock %}

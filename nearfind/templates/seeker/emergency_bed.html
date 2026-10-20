@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="emergency-page">
+  <header class="dashboard-head compact emergency-header">
+    <div>
+      <p class="eyebrow">Emergency support</p>
+      <h1>Emergency Bed Availability</h1>
+      <p>Find nearby hospitals with reported bed availability. <span class="muted" style="margin-left: 8px;">Facility manager? <a href="{{ url_for('hospital_onboarding') }}" style="color: var(--gold); font-weight: 600;">Register your hospital</a>.</span></p>
+    </div>
+  </header>
+
+  {% if active_hold %}
+  <section class="panel active-bed-hold-card" style="border-left: 4px solid var(--gold); margin-bottom: 24px; padding: 20px;" aria-live="polite">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+      <div>
+        <p class="eyebrow" style="color: var(--gold); margin-bottom: 4px;">Active Emergency Hold · Reserved Bed</p>
+        <h2 style="margin: 0 0 6px;">{{ active_hold.hospitals.name if active_hold.hospitals else "Hospital Facility" }}</h2>
+        <p style="margin: 0 0 8px;">
+          Reserved: <strong>{{ active_hold.bed_type|title }} Bed</strong> ·
+          <span class="status-chip available">Active Hold</span>
+        </p>
+        {% if active_hold.hospitals and active_hold.hospitals.address %}
+        <p class="muted" style="margin: 0 0 4px; font-size: 14px;">{{ active_hold.hospitals.address }}</p>
+        {% endif %}
+        {% if active_hold.expires_at %}
+        <p class="notice" style="margin-top: 8px; font-size: 13px;">
+          &#9200; Held until {{ active_hold.expires_at }}. Please proceed directly to hospital intake.
+        </p>
+        {% endif %}
+      </div>
+      <div class="actions" style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+        {% if active_hold.hospitals and active_hold.hospitals.phone %}
+        <a class="btn small primary" href="tel:{{ active_hold.hospitals.phone }}">&#128222; Call Hospital ({{ active_hold.hospitals.phone }})</a>
+        {% endif %}
+        {% if active_hold.hospitals and active_hold.hospitals.lat is not none and active_hold.hospitals.lng is not none %}
+        <a class="btn small" href="https://www.google.com/maps/dir/?api=1&destination={{ active_hold.hospitals.lat }},{{ active_hold.hospitals.lng }}" target="_blank" rel="noopener noreferrer">&#128205; Get Directions</a>
+        {% endif %}
+        <form method="post" action="{{ url_for('cancel_hospital_bed_hold', hold_id=active_hold.id) }}" style="display: inline; margin-top: 4px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn ghost small" type="submit" onclick="return confirm('Cancel this emergency bed hold? Your reserved capacity will be returned to the hospital inventory.');">Cancel Bed Hold</button>
+        </form>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="panel emergency-controls" aria-labelledby="emergencySearchTitle">
+    <h2 id="emergencySearchTitle">What do you need?</h2>
+    <fieldset class="bed-options">
+      <legend class="sr-only">Choose a bed type</legend>
+      {% for value, label in [("general", "General"), ("icu", "ICU"), ("oxygen", "Oxygen-supported"), ("emergency", "Emergency"), ("isolation", "Isolation")] %}
+      <label class="bed-option" for="bed-{{ value }}">
+        <input id="bed-{{ value }}" name="bed_type" type="radio" value="{{ value }}"{% if loop.first %} checked{% endif %}>
+        <span>{{ label }}</span>
+      </label>
+      {% endfor %}
+    </fieldset>
+    <div class="emergency-location-row">
+      <div>
+        <span class="control-label">Your location</span>
+        <p id="emergencyLocationStatus" class="muted" role="status" aria-live="polite">Choose a bed type and location to search nearby hospitals.</p>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn location-button" id="useEmergencyLocation" type="button">Use my current location</button>
+        <button class="btn small ghost" id="toggleEmergencyManualCoords" type="button">Enter coordinates</button>
+      </div>
+    </div>
+    <div id="emergencyManualLocation" style="display: none; padding: 14px; background: rgba(0,0,0,0.25); border: 1px solid var(--line-subtle); border-radius: 10px; margin-top: 10px;">
+      <p class="field-hint" style="margin: 0 0 10px; color: var(--muted);">Browser geolocation usually requires localhost or HTTPS and user permission. You can enter your coordinates manually below.</p>
+      <div class="grid two" style="gap: 12px;">
+        <label>Latitude (-90 to 90)
+          <input type="number" step="any" min="-90" max="90" id="manualEmergencyLat" placeholder="e.g. 26.7606" value="{{ session.get('lat') or '' }}">
+        </label>
+        <label>Longitude (-180 to 180)
+          <input type="number" step="any" min="-180" max="180" id="manualEmergencyLng" placeholder="e.g. 83.3732" value="{{ session.get('lng') or '' }}">
+        </label>
+      </div>
+      <div style="margin-top: 10px;">
+        <button type="button" class="btn small primary" id="applyEmergencyManualCoords">Apply Coordinates</button>
+      </div>
+    </div>
+    <div class="emergency-search-row">
+      <label for="hospitalRadius">Search radius
+        <select id="hospitalRadius">
+          {% for radius in [2, 5, 10, 20, 50] %}
+          <option value="{{ radius }}"{% if radius == 5 %} selected{% endif %}>{{ radius }} km</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="emergency-actions">
+        <button class="btn" id="refreshHospitals" type="button" hidden>Refresh availability</button>
+        <button class="btn primary" id="findHospitals" type="button">Find nearby hospitals</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="safety-note"><strong>For a medical emergency, contact local emergency medical services or the hospital directly.</strong> Availability is based on the hospital's latest update and should be confirmed directly before travel.</p>
+
+  <div class="emergency-results-layout">
+    <section class="hospital-results" aria-labelledby="hospitalResultsTitle">
+      <div class="section-heading"><h2 id="hospitalResultsTitle">Nearby hospitals</h2><span id="hospitalResultCount" class="count-label"></span></div>
+      <div id="hospitalSearchStatus" class="empty" role="status" aria-live="polite">Choose a bed type and location to search nearby hospitals.</div>
+      <div id="hospitalResults" class="hospital-list"></div>
+    </section>
+    <div id="hospitalMap" class="map emergency-map" role="application" aria-label="Map of nearby verified hospitals" data-lat="{{ session.get('lat') or '' }}" data-lng="{{ session.get('lng') or '' }}"></div>
+  </div>
+</section>
+
+<dialog id="hospitalDetails" class="hospital-dialog" aria-labelledby="hospitalDetailsTitle">
+  <article>
+    <button class="dialog-close" id="closeHospitalDetails" type="button" aria-label="Close hospital details">&times;</button>
+    <p class="eyebrow">Hospital details</p>
+    <h2 id="hospitalDetailsTitle"></h2>
+    <p id="hospitalDetailsMeta" class="muted"></p>
+    <dl id="hospitalDetailsAvailability" class="hospital-availability"></dl>
+    <p id="hospitalDetailsFreshness" class="notice"></p>
+    <p class="muted">Availability may change. Confirm directly with the hospital before travelling.</p>
+    <div id="hospitalDetailsActions" class="actions"></div>
+  </article>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/hospital-search.js') }}"></script>
+{% endblock %}

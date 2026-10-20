@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow wide seeker-driver-request-page">
+  {% if driver_request %}
+  <section class="panel driver-request-result">
+    <p class="eyebrow">Driver request created</p>
+    <h1>Request details</h1>
+    <p>Your request has been saved. Matching below includes approved, available drivers within the request radius.</p>
+    <dl class="driver-request-summary">
+      <div><dt>Pickup</dt><dd>{{ driver_request.pickup_address }}</dd></div>
+      <div><dt>Destination</dt><dd>{{ driver_request.destination_address }}</dd></div>
+      <div><dt>Starts</dt><dd>{{ driver_request.requested_start }}</dd></div>
+      <div><dt>Duration</dt><dd>{{ driver_request.duration_minutes }} minutes</dd></div>
+      <div><dt>Request status</dt><dd>{{ driver_request.status }}</dd></div>
+    </dl>
+    {% if booking %}
+    <section class="driver-booking-confirmation panel" style="border-left: 4px solid var(--gold); margin: 20px 0;" aria-live="polite">
+      <p class="eyebrow">Assigned Driver</p>
+      <h2>{{ booking.driver.name if booking.driver else "Your Driver" }}</h2>
+      <p>Trip Status: <strong class="status-chip {{ 'available' if booking.status == 'in_progress' or booking.status == 'completed' else 'selected' }}">{{ booking.status|replace("_", " ")|title }}</strong></p>
+      {% if booking.driver and booking.driver.phone %}
+      <p>Driver Phone: <a href="tel:{{ booking.driver.phone }}" class="btn small" style="display: inline-flex; margin-top: 4px;">&#128222; Call {{ booking.driver.phone }}</a></p>
+      {% endif %}
+      {% if booking.driver_profile %}
+      <p class="muted" style="font-size: 13px;">Experience: {{ booking.driver_profile.experience_years }} yrs · Category: {{ booking.driver_profile.licence_category }}</p>
+      {% endif %}
+      {% set dl = driver_location or (booking.driver_location if booking else none) %}
+      {% if dl and dl.sharing_enabled and dl.lat is not none %}
+      <div class="notice" style="margin-top: 12px;" id="driverLocationNotice">
+        &#128205; Driver location shared: Coordinates ({{ dl.lat|round(4) }}, {{ dl.lng|round(4) }}){% if dl.updated_at %} · Updated {{ dl.updated_at }}{% endif %}
+      </div>
+      {% endif %}
+      {% if booking.status == "accepted" %}
+      <div style="margin-top: 16px;">
+        <form method="post" action="{{ url_for('seeker_cancel_driver_booking', booking_id=booking.id) }}" style="display: inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn ghost small" type="submit" onclick="return confirm('Cancel this driver booking?');">Cancel Driver Booking</button>
+        </form>
+      </div>
+      {% elif booking.status == "in_progress" %}
+      <p class="notice" style="color: var(--gold);">Trip is currently in transit. Drive safely!</p>
+      {% elif booking.status == "completed" %}
+      <p class="notice" style="color: var(--green);">&#10003; Trip has been completed. Thank you!</p>
+      {% endif %}
+    </section>
+    {% elif driver_request.status != "open" %}
+    <p class="notice">This request is {{ driver_request.status|replace("_", " ") }}. No active booking was found.</p>
+    {% endif %}
+
+    <!-- Trip Map & Live Driver Tracking -->
+    <div class="driver-tracking-container" style="margin: 24px 0;">
+      <div class="driver-tracking-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h2 style="margin: 0; font-size: 18px;">Trip Map &amp; Live Tracking</h2>
+        <span id="driverTrackingStatus" class="notice location-status" role="status" aria-live="polite" style="margin: 0; padding: 4px 10px; font-size: 13px;">Initialising trip map...</span>
+      </div>
+      <div id="driverRequestMap" class="map driver-request-map" role="application" aria-label="Trip route and live driver location map" style="min-height: 380px; width: 100%; border-radius: 8px;"></div>
+      <div id="driverTrackingMeta" class="muted" style="margin-top: 8px; font-size: 13px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <span id="driverDistanceInfo"></span>
+        <span id="driverLastUpdated"></span>
+      </div>
+    </div>
+    <h2>Available drivers</h2>
+    {% if booking %}
+    <p class="muted">A driver has accepted. Driver matching is closed for this request.</p>
+    {% elif matches %}
+    <div class="driver-match-list">
+      {% for driver in matches %}
+      <article class="driver-match-card">
+        <h3>{{ driver.display_name }}</h3>
+        <p>{{ driver.distance_km|round(1) }} km from pickup · {{ driver.experience_years }} years' experience</p>
+        <p>Licence category: {{ driver.licence_category }}</p>
+        {% if driver.languages %}<p>Languages: {{ driver.languages|join(", ") }}</p>{% endif %}
+        {% if driver.bio %}<p>{{ driver.bio }}</p>{% endif %}
+        <p class="muted">The driver must accept before a booking is created.</p>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No approved, available drivers currently match this request.</p>
+    {% endif %}
+    <a class="btn" href="{{ url_for('seeker_driver_request') }}">Create another request</a>
+  </section>
+  {% else %}
+  {% if previous_requests %}
+  <section class="panel" style="margin-bottom: 24px; width: min(820px, 100%);">
+    <div class="section-heading">
+      <h2>Your Driver Requests</h2>
+      <span class="count-label">{{ previous_requests|length }}</span>
+    </div>
+    <div class="driver-request-list" style="margin-top: 12px;">
+      {% for req in previous_requests %}
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <div>
+          <strong>{{ req.pickup_address }} → {{ req.destination_address }}</strong>
+          <p class="muted" style="margin: 2px 0 0; font-size: 13px;">{{ req.requested_start }} · {{ req.duration_minutes }} mins</p>
+        </div>
+        <div>
+          <span class="status-chip {{ 'open' if req.status == 'open' else 'selected' }}">{{ req.status|replace("_", " ")|title }}</span>
+          <a class="btn small" href="{{ url_for('seeker_driver_request', request_id=req.id) }}" style="margin-left: 8px;">View</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+  <form class="panel form-card seeker-driver-request-form" method="post" action="{{ url_for('seeker_driver_request') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="eyebrow">Driver request · Your own car</p>
+    <h1>Plan a drive in your car</h1>
+    <p class="form-intro">Share the trip details for a driver to drive your own vehicle.</p>
+
+    <aside class="driver-request-notice" role="note">
+      <strong>Driver matching needs accurate pickup and destination map points.</strong>
+      Set both points on the map. The request will be saved, then matching will show only approved, available drivers. It does not book a driver automatically.
+    </aside>
+
+    <div class="grid two seeker-driver-request-grid">
+      <div class="full pickup-input-group">
+        <label for="pickup" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span>Pickup location</span>
+          <span class="location-status-tag" id="pickupStatusTag" style="display: none; font-size: 11.5px; padding: 2px 8px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38BDF8; font-weight: 600;"></span>
+        </label>
+        <div class="pickup-input-action-row" style="display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap;">
+          <input id="pickup" name="pickup" type="text" maxlength="250" autocomplete="street-address" placeholder="Enter pickup address or set on map" value="{{ request.form.get('pickup', '') }}" style="flex: 1; min-width: 220px;" required>
+          <button type="button" class="btn small primary use-current-location-btn" id="useMyCurrentLocationBtn" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; font-weight: 700; height: auto;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+            Use My Current Location
+          </button>
+        </div>
+      </div>
+
+      <div class="full destination-input-group">
+        <label for="destination" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span>Destination</span>
+          <span class="location-status-tag" id="destinationStatusTag" style="display: none; font-size: 11.5px; padding: 2px 8px; border-radius: 4px; background: rgba(197, 243, 107, 0.15); color: var(--lime); font-weight: 600;"></span>
+        </label>
+        <input id="destination" name="destination" type="text" maxlength="250" placeholder="Enter destination address or click map point B" value="{{ request.form.get('destination', '') }}" required>
+      </div>
+
+      <div class="driver-map-picker full">
+        <div class="driver-map-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+          <div class="driver-map-actions" role="group" aria-label="Choose map point" style="display: flex; gap: 8px;">
+            <button class="btn small point-select-btn active" id="selectPickupPoint" type="button" aria-pressed="true" style="display: inline-flex; align-items: center; gap: 6px;">
+              <span class="point-badge pickup-badge" style="background: #3B82F6; color: #FFFFFF; font-weight: 800; border-radius: 4px; padding: 1px 6px; font-size: 11px;">A</span> Set Pickup Point
+            </button>
+            <button class="btn small point-select-btn" id="selectDestinationPoint" type="button" aria-pressed="false" style="display: inline-flex; align-items: center; gap: 6px;">
+              <span class="point-badge dest-badge" style="background: #10B981; color: #04211A; font-weight: 800; border-radius: 4px; padding: 1px 6px; font-size: 11px;">B</span> Set Destination Point
+            </button>
+          </div>
+          <button class="btn small ghost" id="useDriverPickupLocation" type="button" style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+            GPS for Pickup
+          </button>
+        </div>
+        <div id="driverRequestMap" class="map driver-request-map" role="application" aria-label="Map to select pickup and destination coordinates" data-user-lat="{{ session.get('lat') or '' }}" data-user-lng="{{ session.get('lng') or '' }}" style="min-height: 380px; width: 100%; border-radius: 12px; border: 1px solid var(--lime-border);"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+          <p id="driverMapStatus" class="location-status" role="status" aria-live="polite" style="margin: 0; font-size: 12.5px;">Click map to set Pickup Point (A), or use current location.</p>
+          <div id="pointsSummaryBadges" style="display: flex; gap: 10px; font-size: 12px;">
+            <span id="pickupBadgeSummary" class="muted">Pickup (A): <strong style="color: #60A5FA;">Not set</strong></span>
+            <span id="destinationBadgeSummary" class="muted">Destination (B): <strong style="color: var(--lime);">Not set</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <input id="pickupLat" name="pickup_lat" type="hidden" value="{{ request.form.get('pickup_lat', '') }}" required>
+      <input id="pickupLng" name="pickup_lng" type="hidden" value="{{ request.form.get('pickup_lng', '') }}" required>
+      <input id="destinationLat" name="destination_lat" type="hidden" value="{{ request.form.get('destination_lat', '') }}" required>
+      <input id="destinationLng" name="destination_lng" type="hidden" value="{{ request.form.get('destination_lng', '') }}" required>
+
+      <label for="requestedDate">Requested date
+        <input id="requestedDate" name="requested_date" type="date" value="{{ request.form.get('requested_date', '') }}" required>
+      </label>
+      <label for="requestedTime">Requested time
+        <input id="requestedTime" name="requested_time" type="time" value="{{ request.form.get('requested_time', '') }}" required>
+      </label>
+      <label for="durationHours">Expected duration (hours)
+        <input id="durationHours" name="duration_hours" type="number" min="0.01" step="any" inputmode="decimal" value="{{ request.form.get('duration_hours', '') }}" required>
+      </label>
+
+      <!-- Professional Optional Amenities Section -->
+      <fieldset class="driver-amenities-section full" style="border: none; padding: 0; margin: 6px 0 0;">
+        <legend class="driver-amenities-legend" style="padding: 0; margin-bottom: 4px; font-weight: 700; font-size: 14px; color: #FFFFFF; display: block;">Optional Amenities</legend>
+        <p class="muted driver-amenities-hint" style="margin: 0 0 10px; font-size: 12px;">Select driver comfort amenities provided for your trip</p>
+        <div class="driver-amenities-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px;">
+          <label class="driver-amenity-card" for="amenityFood" tabindex="0">
+            <input id="amenityFood" name="amenities" type="checkbox" value="food" class="driver-amenity-input" {% if 'food' in (request.form.getlist('amenities') if request.form else []) %}checked{% endif %}>
+            <span class="driver-amenity-icon" aria-hidden="true">🍱</span>
+            <div class="driver-amenity-info">
+              <strong class="driver-amenity-title">Food &amp; Meals</strong>
+              <span class="driver-amenity-desc">Meal or refreshment allowance included</span>
+            </div>
+            <span class="driver-amenity-check" aria-hidden="true"></span>
+          </label>
+          <label class="driver-amenity-card" for="amenityRest" tabindex="0">
+            <input id="amenityRest" name="amenities" type="checkbox" value="rest_breaks" class="driver-amenity-input" {% if 'rest_breaks' in (request.form.getlist('amenities') if request.form else []) %}checked{% endif %}>
+            <span class="driver-amenity-icon" aria-hidden="true">☕</span>
+            <div class="driver-amenity-info">
+              <strong class="driver-amenity-title">Rest Breaks</strong>
+              <span class="driver-amenity-desc">Scheduled comfort &amp; refreshment stops</span>
+            </div>
+            <span class="driver-amenity-check" aria-hidden="true"></span>
+          </label>
+        </div>
+      </fieldset>
+
+      <label for="requestedRadius">Search radius (km)
+        <select id="requestedRadius" name="requested_radius_km">
+          {% for radius in [5, 10, 25, 50, 100, 200] %}
+          <option value="{{ radius }}"{% if (request.form.get('requested_radius_km')|int if request.form.get('requested_radius_km') else 25) == radius %} selected{% endif %}>{{ radius }} km</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <input id="timezoneOffset" name="timezone_offset_minutes" type="hidden">
+    <p class="driver-request-disclaimer">Your pickup and destination coordinates are used to find nearby drivers. A booking is created only after an available driver accepts.</p>
+    <button class="btn primary" type="submit">Save request and find drivers</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  {% if driver_request %}
+  window.NEARFIND_DRIVER_REQUEST = {{ driver_request|tojson }};
+  window.NEARFIND_DRIVER_BOOKING = {{ booking|tojson if booking else "null" }};
+  {% endif %}
+</script>
+<script src="{{ url_for('static', filename='js/driver-request-map.js') }}"></script>
+{% endblock %}

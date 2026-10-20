@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard-head compact">
+  <div>
+    <p class="eyebrow">Jury demo · Read-only preview</p>
+    <h1>On-Demand Driver</h1>
+    <p>This page explains the current demo boundary. It uses no Driver records and performs no database writes.</p>
+  </div>
+</section>
+
+<section class="panel driver-demo-status" role="status">
+  <p class="eyebrow">Live database check reported</p>
+  <h2>Driver backend is not installed in NearFind V1</h2>
+  <p>The visible database tables are <strong>users</strong>, <strong>queries</strong>, and <strong>responses</strong>. Driver tables and RPC functions are absent, so Driver data cannot be saved, reviewed, matched, or booked.</p>
+</section>
+
+<section class="steps driver-demo-steps" aria-label="Driver workflow preview">
+  <article>
+    <span>1</span>
+    <h2>Provider profile</h2>
+    <p>The profile form is implemented, but its page reads the missing <code>driver_profiles</code> table. It is not available against the current database.</p>
+  </article>
+  <article>
+    <span>2</span>
+    <h2>Availability and review</h2>
+    <p>These pages require Driver tables and reviewer authorization. They cannot be demonstrated as live screens until the schema is validated and installed in a separate test database.</p>
+  </article>
+  <article>
+    <span>3</span>
+    <h2>Seeker request form</h2>
+    <p>An authenticated seeker can open the form as a read-only UI preview. Do not submit it: request persistence and matching require Driver RPCs.</p>
+  </article>
+</section>
+
+<section class="panel driver-demo-next">
+  {% if session.get("role") == "seeker" %}
+  <a class="btn primary" href="{{ url_for('seeker_driver_request') }}">Preview seeker request form</a>
+  {% else %}
+  <p>To preview the form, sign in with an existing seeker account, then choose <strong>Request a driver</strong> from the navigation.</p>
+  <a class="btn" href="{{ url_for('login') }}">Sign in as a seeker</a>
+  {% endif %}
+  <p class="muted">Stop at the form. Do not submit, approve a profile, publish availability, or accept a request during this demo.</p>
+</section>
+{% endblock %}

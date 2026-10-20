@@ -27,6 +27,16 @@
   {% endfor %}
 </section>
 
+{% if query.status == "matched" %}
+<section class="matched-next-action" role="status" aria-live="polite">
+  <div>
+    <p class="eyebrow">Next step</p>
+    <h2>Your provider is matched</h2>
+    <p>Use chat to coordinate, or navigate to the provider when their shared location is available.</p>
+  </div>
+</section>
+{% endif %}
+
 <section class="map-layout">
   <div id="seekerMap" class="map" role="application" aria-label="Map of provider responses" data-query-id="{{ query.id }}" data-lat="{{ query.lat }}" data-lng="{{ query.lng }}"></div>
   <aside>
@@ -36,6 +46,7 @@
         <label>Sort
           <select id="responseSort">
             <option value="best">Best match</option>
+            <option value="similarity">Highest visual similarity</option>
             <option value="price">Lowest price</option>
             <option value="distance">Nearest provider</option>
             <option value="time">Fastest response</option>
@@ -44,6 +55,7 @@
         <label>Filter
           <select id="responseFilter">
             <option value="all">All</option>
+            <option value="high_match">High similarity match</option>
             <option value="price">With price</option>
             <option value="image">With image</option>
             <option value="nearby">Nearby</option>
@@ -56,7 +68,7 @@
 </section>
 
 <template id="responseTemplate">
-  <article class="response-card">
+  <article class="response-card" data-card>
     <div class="response-head">
       <div>
         <h3 data-name></h3>
@@ -64,29 +76,55 @@
       </div>
       <span class="status-chip" data-status></span>
     </div>
-    <p class="response-product"><strong>Offer</strong> <span data-message></span></p>
-    <p class="response-facts"><span data-price></span><span data-distance></span><span data-time></span></p>
-    <p class="notice" data-location-status hidden></p>
+    <p class="response-product"><strong>Offer:</strong> <span data-message></span></p>
+    <p class="response-facts">
+      <span class="fact-price" data-price></span>
+      <span class="fact-distance" data-distance></span>
+      <span class="fact-time" data-time></span>
+    </p>
+    <p class="notice location-status" data-location-status hidden></p>
     <div class="comparison">
       <figure>
         <figcaption>Your Reference</figcaption>
-        <div class="image-slot" data-reference></div>
+        <div class="image-slot" data-reference tabindex="0" role="button" aria-label="Enlarge reference image"></div>
       </figure>
       <figure>
         <figcaption>Provider's Product</figcaption>
-        <div class="image-slot" data-product></div>
+        <div class="image-slot" data-product tabindex="0" role="button" aria-label="Enlarge provider product image"></div>
       </figure>
     </div>
-    <div class="actions">
-      <button class="btn small" data-details type="button">View Details</button>
-      <button class="btn small primary" data-select>Select Provider</button>
-      <a class="btn small" data-call>Call</a>
-      <a class="btn small" data-whatsapp target="_blank" rel="noopener">WhatsApp</a>
-      <a class="btn small" data-directions target="_blank" rel="noopener">Get Directions</a>
-      <a class="btn small primary" data-chat hidden>Chat with Provider</a>
+    <div class="similarity-box" data-similarity-box hidden>
+      <div class="similarity-header">
+        <span class="similarity-tag">Visual Match</span>
+        <strong class="similarity-score" data-similarity-score></strong>
+        <span class="similarity-level" data-similarity-level></span>
+      </div>
+      <p class="similarity-disclaimer" data-similarity-disclaimer></p>
+    </div>
+    <div class="response-actions-wrap">
+      <div class="primary-actions">
+        <button class="btn small primary" data-select type="button">Select Provider</button>
+        <a class="btn small primary" data-chat hidden>Chat with Provider</a>
+        <a class="btn small primary" data-directions data-navigation target="_blank" rel="noopener" hidden>Get Directions</a>
+        <button class="btn small" data-view-on-map type="button" title="Center marker on map">View on Map</button>
+      </div>
+      <div class="secondary-actions">
+        <button class="btn small" data-details type="button">View Details</button>
+        <a class="btn small" data-call>Call</a>
+        <a class="btn small" data-whatsapp target="_blank" rel="noopener">WhatsApp</a>
+      </div>
     </div>
   </article>
 </template>
+
+<dialog id="imageLightbox" class="lightbox-modal" aria-labelledby="lightboxCaption">
+  <div class="lightbox-content">
+    <button class="lightbox-close" type="button" data-close-lightbox aria-label="Close image preview">&times;</button>
+    <img id="lightboxImage" src="" alt="Enlarged view">
+    <p id="lightboxCaption" class="lightbox-caption"></p>
+  </div>
+</dialog>
+
 <dialog id="responseDetails" class="response-dialog" aria-labelledby="responseDetailsTitle">
   <article>
     <button class="dialog-close" type="button" data-close-details aria-label="Close provider details">&times;</button>
@@ -95,10 +133,21 @@
     <p data-detail-meta class="muted"></p>
     <p data-detail-message></p>
     <p class="response-facts"><span data-detail-price></span><span data-detail-distance></span><span data-detail-time></span></p>
-    <div class="image-slot" data-detail-image></div>
-    <p class="notice" data-detail-location></p>
+    <div class="image-slot" data-detail-image tabindex="0" role="button" aria-label="Enlarge product image"></div>
+    <div class="similarity-box" data-detail-similarity-box hidden>
+      <div class="similarity-header">
+        <span class="similarity-tag">Visual Match</span>
+        <strong class="similarity-score" data-detail-similarity-score></strong>
+        <span class="similarity-level" data-detail-similarity-level></span>
+      </div>
+      <p class="similarity-disclaimer" data-detail-similarity-disclaimer></p>
+    </div>
+    <p class="notice location-status" data-detail-location></p>
     <div class="actions">
       <button class="btn primary" data-detail-select type="button">Select Provider</button>
+      <a class="btn primary" data-detail-directions data-detail-navigation target="_blank" rel="noopener" hidden>Get Directions</a>
+      <button class="btn" data-detail-view-map type="button">View on Map</button>
+      <a class="btn" data-detail-call hidden>Call Provider</a>
       <a class="btn primary" data-detail-chat hidden>Chat with Provider</a>
     </div>
   </article>

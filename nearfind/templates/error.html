@@ -5,7 +5,12 @@
     <p class="eyebrow">NearFind</p>
     <h1>Something needs attention</h1>
     <p>{{ message }}</p>
-    <a class="btn primary" href="{{ url_for('index') }}">Go Home</a>
+    <div style="display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;">
+      {% if session.get("role") == "provider" %}
+        <a class="btn primary" href="{{ url_for('provider_driver_onboarding_page') }}">Complete Driver Profile &amp; Verification</a>
+      {% endif %}
+      <a class="btn {{ 'ghost' if session.get('role') == 'provider' else 'primary' }}" href="{{ url_for('index') }}">Go Home</a>
+    </div>
   </div>
 </section>
 {% endblock %}

@@ -6,7 +6,7 @@
   <title>{{ title or "NearFind" }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -14,7 +14,14 @@
 </head>
 <body{% if session.get("user_id") %} data-logged-in="true"{% endif %}>
   <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}"><span>Near</span>Find</a>
+    <a class="brand" href="{{ url_for('index') }}" aria-label="NearFind Home">
+      <svg class="brand-logo" width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M16 2.5C10.75 2.5 6.5 6.75 6.5 12C6.5 19.2 16 29.5 16 29.5C16 29.5 25.5 19.2 25.5 12C25.5 6.75 21.25 2.5 16 2.5Z" fill="#102D29" stroke="#C5F36B" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M12 16.5V9.5L20 16.5V9.5" stroke="#C5F36B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="16" cy="12" r="1.5" fill="#C5F36B"/>
+      </svg>
+      <span class="brand-text">Near<span class="brand-accent">Find</span></span>
+    </a>
     <nav>
       {% if session.get("user_id") %}
         <div class="notification-menu" data-notifications>
@@ -28,9 +35,21 @@
         {% if session.get("role") == "seeker" %}
           <a href="{{ url_for('seeker_dashboard') }}">Home</a>
           <a href="{{ url_for('post_query_page') }}">New request</a>
+          <a href="{{ url_for('seeker_driver_request') }}">Request a driver</a>
+          <a href="{{ url_for('emergency_bed_page') }}">Emergency bed</a>
           <a class="nav-cta" href="{{ url_for('post_query_page') }}">Find help</a>
         {% else %}
           <a href="{{ url_for('provider_dashboard') }}">Nearby requests</a>
+          <a href="{{ url_for('provider_driver_requests') }}">Driver tasks & requests</a>
+          <a href="{{ url_for('provider_driver_availability') }}">Driver availability</a>
+        {% endif %}
+        {% if session.get("is_hospital_manager") %}
+          <a href="{{ url_for('hospital_dashboard') }}" style="color: var(--gold); font-weight: 700;">Hospital console</a>
+        {% else %}
+          <a href="{{ url_for('hospital_onboarding') }}">Hospital onboarding</a>
+        {% endif %}
+        {% if session.get("is_reviewer") %}
+          <a href="{{ url_for('reviewer_driver_profiles') }}" style="color: var(--teal); font-weight: 700;">Reviewer console</a>
         {% endif %}
         <form class="logout-form" method="post" action="{{ url_for('logout') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -38,6 +57,7 @@
         </form>
       {% else %}
         <a href="{{ url_for('login') }}">Login</a>
+        <a href="{{ url_for('driver_demo_page') }}">Driver demo</a>
         <a class="nav-cta" href="{{ url_for('signup') }}">Get Started</a>
       {% endif %}
     </nav>
@@ -58,6 +78,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/navigation.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

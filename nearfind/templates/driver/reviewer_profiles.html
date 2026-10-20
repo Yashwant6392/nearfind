@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard-head compact">
+  <div>
+    <p class="eyebrow">Trusted reviewer</p>
+    <h1>Driver profile review</h1>
+    <p>Review identity and licence evidence through your approved offline process before recording a verification decision. NearFind does not collect or store raw identity or licence numbers.</p>
+  </div>
+</section>
+<section class="driver-request-list">
+  {% for profile in profiles %}
+  <article class="panel driver-review-card">
+    <p class="eyebrow">Profile {{ profile.provider_id }}</p>
+    <h2>{{ profile.experience_years }} years · {{ profile.licence_category }}</h2>
+    <p>Languages: {{ profile.languages|join(", ") if profile.languages else "Not provided" }}</p>
+    {% if profile.bio %}<p>{{ profile.bio }}</p>{% endif %}
+    <p>Current status: <strong>{{ profile.verification_status|replace("_", " ")|title }}</strong></p>
+    {% if profile.documents %}
+    <div class="reviewer-documents-box" style="margin: 16px 0; padding: 14px 16px; background: rgba(0, 0, 0, 0.22); border: 1px solid var(--line-subtle); border-radius: 8px;">
+      <h3 style="font-size: 13.5px; font-weight: 700; margin: 0 0 10px; color: #FFFFFF;">Uploaded Verification Evidence</h3>
+      <div style="display: grid; gap: 8px;">
+        {% for doc in profile.documents %}
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line-subtle); border-radius: 6px; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <strong style="color: #FFFFFF; font-size: 13px;">{{ "Identity / Aadhaar Document" if doc.verification_type == "identity" else "Driving Licence Document" }}</strong>
+            <span class="muted" style="font-size: 11.5px; margin-left: 6px;">Submitted {{ doc.submitted_at }}</span>
+            {% if doc.review_notes %}
+            <p style="margin: 2px 0 0; font-size: 11.5px; color: var(--gold);">Notes: {{ doc.review_notes }}</p>
+            {% endif %}
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="status-chip {{ 'matched' if doc.status == 'approved' else ('expired' if doc.status in ['rejected', 'needs_resubmission'] else 'open') }}" style="font-size: 11px;">
+              {{ doc.status|replace("_", " ")|title }}
+            </span>
+            {% if doc.signed_url %}
+            <a href="{{ doc.signed_url }}" class="btn small ghost" target="_blank" rel="noopener noreferrer">Inspect Document ↗</a>
+            {% else %}
+            <span class="muted" style="font-size: 11px;">No secure link</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <p class="muted" style="font-size: 12.5px; margin: 12px 0;">No verification documents uploaded yet for this driver.</p>
+    {% endif %}
+    <form class="form-card" method="post" action="{{ url_for('reviewer_driver_profiles') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="driver_id" value="{{ profile.provider_id }}">
+      <label>Decision
+        <select name="decision" required>
+          <option value="">Choose a decision</option>
+          <option value="under_review">Under review</option>
+          <option value="approved">Approve after independent verification</option>
+          <option value="rejected">Reject</option>
+          <option value="suspended">Suspend</option>
+        </select>
+      </label>
+      <label>Reviewer notes
+        <textarea name="review_notes" maxlength="2000" rows="3"></textarea>
+      </label>
+      <button class="btn primary" type="submit">Save review decision</button>
+    </form>
+  </article>
+  {% else %}
+  <div class="panel empty">No driver profiles are available for review.</div>
+  {% endfor %}
+</section>
+{% endblock %}

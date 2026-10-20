@@ -1,14 +1,26 @@
 import io
 import math
 import re
+import socket
+import ssl
 import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 import app as nearfind
-from services.storage_service import validate_image
+from services.location_service import format_distance, haversine, valid_coordinates
+from services.storage_service import upload_public_image, validate_image
+from services.supabase_service import (
+    RestSupabaseClient,
+    SupabaseConnectionError,
+    _headers,
+    _raise_for_supabase,
+    _transport_diagnostic,
+    supabase_auth_request,
+)
 from werkzeug.datastructures import FileStorage
 
 
@@ -253,6 +265,357 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "/seeker/dashboard")
 
+    def test_rest_signup_posts_to_auth_endpoint_and_handles_success_response(self):
+        self.csrf_from("/signup")
+        supabase = RestSupabaseClient(
+            "https://project-ref.supabase.co",
+            "sb_publishable_test-key",
+            "sb_publishable_test-key",
+        )
+        auth_response = httpx.Response(
+            200,
+            json={
+                "user": {
+                    "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                    "email": "signup@example.com",
+                }
+            },
+        )
+        try:
+            with patch.object(supabase.http, "post", return_value=auth_response) as post, patch.object(
+                nearfind, "get_supabase", return_value=supabase
+            ), patch.object(nearfind, "table", return_value=FakeTable()):
+                response = self.client.post(
+                    "/auth/signup",
+                    data={
+                        "name": "Signup User",
+                        "email": "signup@example.com",
+                        "password": "NearFind123",
+                        "phone": "9999999999",
+                        "address": "Signup Address",
+                        "role": "seeker",
+                        "csrf_token": self.csrf_from("/signup"),
+                    },
+                    follow_redirects=False,
+                )
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers["Location"], "/seeker/dashboard")
+            self.assertEqual(post.call_args.args[0], "https://project-ref.supabase.co/auth/v1/signup")
+            self.assertNotIn("/rest/v1", post.call_args.args[0])
+            self.assertEqual(post.call_args.kwargs["json"]["email"], "signup@example.com")
+            headers = post.call_args.kwargs["headers"]
+            self.assertEqual(headers["apikey"], "sb_publishable_test-key")
+            self.assertNotIn("Authorization", headers)
+        finally:
+            supabase.http.close()
+
+    def test_rest_login_posts_to_auth_endpoint_with_publishable_key(self):
+        self.csrf_from("/login")
+        supabase = RestSupabaseClient(
+            "https://project-ref.supabase.co",
+            "sb_publishable_test-key",
+            "sb_publishable_test-key",
+        )
+        profile = {
+            "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            "email": "login@example.com",
+            "role": "seeker",
+            "name": "Login User",
+            "is_active": True,
+        }
+        auth_response = httpx.Response(
+            200,
+            json={
+                "user": {
+                    "id": profile["id"],
+                    "email": profile["email"],
+                }
+            },
+        )
+        try:
+            with patch.object(supabase.http, "post", return_value=auth_response) as post, patch.object(
+                nearfind, "get_supabase", return_value=supabase
+            ), patch.object(nearfind, "table", return_value=FakeProfileTable(profile)):
+                response = self.client.post(
+                    "/auth/login",
+                    data={
+                        "email": "login@example.com",
+                        "password": "NearFind123",
+                        "csrf_token": self.csrf_from("/login"),
+                    },
+                    follow_redirects=False,
+                )
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers["Location"], "/seeker/dashboard")
+            self.assertEqual(post.call_args.args[0], "https://project-ref.supabase.co/auth/v1/token")
+            self.assertEqual(post.call_args.kwargs["params"], {"grant_type": "password"})
+            headers = post.call_args.kwargs["headers"]
+            self.assertEqual(headers["apikey"], "sb_publishable_test-key")
+            self.assertNotIn("Authorization", headers)
+        finally:
+            supabase.http.close()
+
+    def test_legacy_anon_key_retains_bearer_header(self):
+        legacy_anon_key = "eyJ.test.legacy-anon"
+        headers = _headers(legacy_anon_key)
+        self.assertEqual(headers["apikey"], legacy_anon_key)
+        self.assertEqual(headers["Authorization"], f"Bearer {legacy_anon_key}")
+
+    def test_rest_http_client_honors_configured_environment(self):
+        supabase = RestSupabaseClient(
+            "https://project-ref.supabase.co",
+            "sb_publishable_test-key",
+            "sb_publishable_test-key",
+        )
+        try:
+            self.assertTrue(supabase.http._trust_env)
+            self.assertEqual(supabase.http.timeout.connect, 20)
+        finally:
+            supabase.http.close()
+
+    def test_public_client_uses_publishable_key_not_service_role_key(self):
+        with patch.object(nearfind.Config, "SUPABASE_URL", "https://project-ref.supabase.co"), patch.object(
+            nearfind.Config, "SUPABASE_ANON_KEY", "sb_publishable_test-key"
+        ), patch.object(nearfind.Config, "SUPABASE_SERVICE_ROLE_KEY", "sb_secret_server-only-key"):
+            supabase = nearfind.get_supabase(admin=False)
+            try:
+                self.assertEqual(supabase.key, "sb_publishable_test-key")
+                self.assertNotEqual(supabase.key, "sb_secret_server-only-key")
+            finally:
+                supabase.http.close()
+
+    def test_legacy_public_client_passes_anon_key_to_supabase_sdk(self):
+        legacy_anon_key = "eyJ.test.legacy-anon"
+        with patch.object(nearfind.Config, "SUPABASE_URL", "https://project-ref.supabase.co"), patch.object(
+            nearfind.Config, "SUPABASE_ANON_KEY", legacy_anon_key
+        ), patch.object(nearfind.Config, "SUPABASE_SERVICE_ROLE_KEY", "legacy-server-only-key"), patch(
+            "services.supabase_service.create_client",
+            return_value=object(),
+        ) as create_client:
+            nearfind.get_supabase(admin=False)
+        create_client.assert_called_once_with(
+            "https://project-ref.supabase.co",
+            legacy_anon_key,
+        )
+
+    def test_transport_error_preserves_safe_category_without_cause_details(self):
+        try:
+            raise socket.gaierror(socket.EAI_NONAME, "sensitive resolver detail")
+        except socket.gaierror as cause:
+            error = httpx.ConnectError("sensitive URL or request detail")
+            error.__cause__ = cause
+
+        class FailedAuth:
+            def __init__(self, error):
+                self.error = error
+
+            def sign_up(self, credentials):
+                raise self.error
+
+        with self.assertRaises(SupabaseConnectionError) as raised:
+            supabase_auth_request(
+                FailedAuth(error),
+                "sign_up",
+                {"email": "test@example.com", "password": "secret"},
+            )
+        self.assertEqual(raised.exception.diagnostic, "dns")
+        self.assertEqual(raised.exception.exception_types, ("ConnectError", "gaierror"))
+        self.assertNotIn("sensitive", str(raised.exception))
+        self.assertNotIn("secret", str(raised.exception))
+
+    def test_transport_error_categories_are_distinguished_from_http_errors(self):
+        self.assertEqual(_transport_diagnostic(httpx.ConnectError("opaque")), "connect")
+        self.assertEqual(_transport_diagnostic(httpx.ProxyError("opaque")), "proxy")
+        self.assertEqual(_transport_diagnostic(httpx.ConnectTimeout("opaque")), "timeout")
+
+        for cause, expected in (
+            (ssl.SSLError("opaque TLS detail"), "tls"),
+            (socket.gaierror(socket.EAI_NONAME, "opaque DNS detail"), "dns"),
+            (ConnectionRefusedError("opaque connection detail"), "connection_refused"),
+        ):
+            with self.subTest(expected=expected):
+                try:
+                    raise cause
+                except OSError as cause_error:
+                    try:
+                        raise httpx.ConnectError("opaque connect detail") from cause_error
+                    except httpx.ConnectError as error:
+                        self.assertEqual(_transport_diagnostic(error), expected)
+
+        self.assertEqual(
+            _transport_diagnostic(httpx.ReadError("opaque network detail")),
+            "network",
+        )
+
+    def test_login_connection_failure_returns_sanitized_service_unavailable(self):
+        self.csrf_from("/login")
+        secret_details = "dns failure https://project-ref.supabase.co password=private-password"
+        with patch.object(nearfind.Config, "SUPABASE_URL", "https://project-ref.supabase.co"), patch.object(
+            nearfind.Config, "SUPABASE_ANON_KEY", "private-anon-key"
+        ), patch.object(nearfind.Config, "SUPABASE_SERVICE_ROLE_KEY", "private-service-key"), patch.object(
+            nearfind, "get_supabase", return_value=FakeSupabase()
+        ), patch.object(FakeAuth, "sign_in_with_password", side_effect=httpx.ConnectError(secret_details)):
+            with self.assertLogs(nearfind.app.logger, level="ERROR") as captured:
+                response = self.client.post(
+                    "/auth/login",
+                    data={
+                        "email": "login@example.com",
+                        "password": "private-password",
+                        "csrf_token": self.csrf_from("/login"),
+                    },
+                )
+        body = response.get_data(as_text=True)
+        logs = "\n".join(captured.output)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("temporarily unavailable", body)
+        self.assertNotIn(secret_details, body)
+        self.assertNotIn("private-password", body + logs)
+        self.assertNotIn("private-anon-key", body + logs)
+        self.assertNotIn("private-service-key", body + logs)
+        self.assertIn("diagnostic=connect", logs)
+        self.assertIn("exception_types=ConnectError", logs)
+        self.assertNotIn(secret_details, logs)
+
+    def test_signup_connection_failure_returns_sanitized_service_unavailable(self):
+        self.csrf_from("/signup")
+        secret_details = "dns failure https://project-ref.supabase.co password=private-password"
+        with patch.object(nearfind.Config, "SUPABASE_URL", "https://project-ref.supabase.co"), patch.object(
+            nearfind.Config, "SUPABASE_ANON_KEY", "private-anon-key"
+        ), patch.object(nearfind.Config, "SUPABASE_SERVICE_ROLE_KEY", "private-service-key"), patch.object(
+            nearfind, "get_supabase", return_value=FakeSupabase()
+        ), patch.object(FakeAuth, "sign_up", side_effect=httpx.ConnectError(secret_details)):
+            with self.assertLogs(nearfind.app.logger, level="ERROR") as captured:
+                response = self.client.post(
+                    "/auth/signup",
+                    data={
+                        "name": "Signup User",
+                        "email": "signup@example.com",
+                        "password": "private-password",
+                        "phone": "9999999999",
+                        "address": "Signup Address",
+                        "role": "seeker",
+                        "csrf_token": self.csrf_from("/signup"),
+                    },
+                )
+        body = response.get_data(as_text=True)
+        logs = "\n".join(captured.output)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("temporarily unavailable", body)
+        self.assertNotIn(secret_details, body)
+        self.assertNotIn("private-password", body + logs)
+        self.assertNotIn("private-anon-key", body + logs)
+        self.assertNotIn("private-service-key", body + logs)
+        self.assertIn("diagnostic=connect", logs)
+        self.assertIn("exception_types=ConnectError", logs)
+
+    def test_signup_disabled_by_supabase_has_actionable_message(self):
+        self.csrf_from("/signup")
+        with patch.object(nearfind, "get_supabase", return_value=FakeSupabase()), patch.object(
+            FakeAuth,
+            "sign_up",
+            side_effect=nearfind.SupabaseRequestError(
+                403,
+                "Sign-ups are currently paused for this project",
+                code="signup_disabled",
+            ),
+        ):
+            response = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "Signup User",
+                    "email": "signup@example.com",
+                    "password": "NearFind123",
+                    "phone": "9999999999",
+                    "address": "Signup Address",
+                    "role": "seeker",
+                    "csrf_token": self.csrf_from("/signup"),
+                },
+            )
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("Sign-ups are currently disabled", body)
+        self.assertIn("project administrator", body)
+        self.assertNotIn("paused for this project", body)
+
+    def test_signup_invalid_public_key_suggests_configuration_check(self):
+        self.csrf_from("/signup")
+        with patch.object(nearfind, "get_supabase", return_value=FakeSupabase()), patch.object(
+            FakeAuth,
+            "sign_up",
+            side_effect=nearfind.SupabaseRequestError(401, "Invalid API key", code="invalid_api_key"),
+        ):
+            response = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "Signup User",
+                    "email": "signup@example.com",
+                    "password": "NearFind123",
+                    "phone": "9999999999",
+                    "address": "Signup Address",
+                    "role": "seeker",
+                    "csrf_token": self.csrf_from("/signup"),
+                },
+            )
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("SUPABASE_URL", body)
+        self.assertIn("SUPABASE_ANON_KEY", body)
+        self.assertNotIn("Invalid API key", body)
+
+    def test_signup_missing_configuration_returns_safe_actionable_error(self):
+        self.csrf_from("/signup")
+        with patch.object(nearfind.Config, "SUPABASE_ANON_KEY", ""), patch.object(
+            nearfind, "get_supabase"
+        ) as get_supabase:
+            response = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "Signup User",
+                    "email": "signup@example.com",
+                    "password": "NearFind123",
+                    "phone": "9999999999",
+                    "address": "Signup Address",
+                    "role": "seeker",
+                    "csrf_token": self.csrf_from("/signup"),
+                },
+            )
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("SUPABASE_ANON_KEY", body)
+        self.assertNotIn("private-anon-key", body)
+        get_supabase.assert_not_called()
+
+    def test_signup_invalid_supabase_url_returns_configuration_error_without_request(self):
+        self.csrf_from("/signup")
+        with patch.object(nearfind.Config, "SUPABASE_URL", "not-a-url"):
+            response = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "Signup User",
+                    "email": "signup@example.com",
+                    "password": "NearFind123",
+                    "phone": "9999999999",
+                    "address": "Signup Address",
+                    "role": "seeker",
+                    "csrf_token": self.csrf_from("/signup"),
+                },
+            )
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("SUPABASE_URL must be a valid HTTP(S) URL", body)
+        self.assertNotIn("not-a-url", body)
+
+    def test_supabase_signup_error_code_is_preserved(self):
+        response = SimpleNamespace(
+            status_code=403,
+            json=lambda: {"code": "signup_disabled", "message": "Sign-ups are paused"},
+            text="",
+        )
+        with self.assertRaises(nearfind.SupabaseRequestError) as raised:
+            _raise_for_supabase(response)
+        self.assertEqual(raised.exception.code, "signup_disabled")
+        self.assertEqual(raised.exception.status_code, 403)
+
     def test_query_lifecycle_reuses_one_query_id_through_resolution(self):
         query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         seeker_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -473,6 +836,16 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn("database internals leaked", response.get_data(as_text=True))
         with self.client.session_transaction() as session:
             self.assertNotIn("user_id", session)
+
+    def test_post_query_page_renders_multipart_form_with_retry_identifier(self):
+        self.login_as(role="seeker")
+        response = self.client.get("/seeker/post")
+        body = response.get_data(as_text=True)
+        query_id_match = re.search(r'name="query_id" value="([0-9a-f-]{36})"', body)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('enctype="multipart/form-data"', body)
+        self.assertIsNotNone(query_id_match)
+        self.assertTrue(nearfind.valid_uuid(query_id_match.group(1)))
 
     def test_notifications_are_scoped_and_mark_read_only_for_owner(self):
         notification_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
@@ -1033,6 +1406,104 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(payload[0]["location"], "Golghar")
         self.assertEqual(payload[0]["seeker_name"], "Seeker One")
         self.assertEqual(payload[0]["status"], "open")
+        self.assertGreater(payload[0]["distance"], 0)
+        self.assertTrue(payload[0]["distance_label"].endswith("away"))
+
+    def test_provider_query_list_keeps_short_nonzero_distance_and_uses_meter_label(self):
+        self.login_as(role="provider", user_id="22222222-2222-4222-8222-222222222222")
+        provider_lat, provider_lng = 26.7606, 83.3732
+        seeker_lat, seeker_lng = 26.76061, 83.3732
+        provider = {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "role": "provider",
+            "is_active": True,
+            "lat": provider_lat,
+            "lng": provider_lng,
+        }
+        row = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "item_name": "USB cable",
+            "category": "electronics",
+            "description": "Need one cable",
+            "users": {"name": "Seeker One"},
+            "location": "Golghar",
+            "lat": seeker_lat,
+            "lng": seeker_lng,
+            "radius_km": 5,
+            "urgency": "urgent",
+            "status": "open",
+            "created_at": "2026-09-05T10:00:00Z",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        }
+        expected_distance = haversine(provider_lat, provider_lng, seeker_lat, seeker_lng)
+        with patch.object(nearfind, "expire_open_queries"), patch.object(
+            nearfind, "current_profile", return_value=provider
+        ), patch.object(nearfind, "table", return_value=FakeRowsTable([row])):
+            response = self.client.get("/query/list?radius_km=5")
+        result = response.json["data"]["queries"][0]
+        self.assertAlmostEqual(result["distance"], expected_distance)
+        self.assertGreater(result["distance"], 0)
+        self.assertEqual(result["distance_label"], "1 m away")
+
+    def test_provider_query_list_requires_saved_coordinates(self):
+        self.login_as(role="provider", user_id="22222222-2222-4222-8222-222222222222")
+        with patch.object(nearfind, "expire_open_queries"), patch.object(
+            nearfind, "current_profile", return_value={"is_active": True, "lat": None, "lng": 83.3732}
+        ), patch.object(nearfind, "table") as table_mock:
+            response = self.client.get("/query/list")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Update your location", response.json["error"]["message"])
+        table_mock.assert_not_called()
+
+    def test_provider_query_list_rejects_invalid_saved_coordinates_and_skips_invalid_request_rows(self):
+        self.login_as(role="provider", user_id="22222222-2222-4222-8222-222222222222")
+        with patch.object(nearfind, "expire_open_queries"), patch.object(
+            nearfind, "current_profile", return_value={"is_active": True, "lat": 91, "lng": 83.3732}
+        ), patch.object(nearfind, "table") as table_mock:
+            invalid_provider_response = self.client.get("/query/list")
+        self.assertEqual(invalid_provider_response.status_code, 400)
+        table_mock.assert_not_called()
+
+        provider = {"is_active": True, "lat": 26.7606, "lng": 83.3732}
+        invalid_row = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "lat": float("nan"),
+            "lng": 83.3732,
+            "status": "open",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        }
+        with patch.object(nearfind, "expire_open_queries"), patch.object(
+            nearfind, "current_profile", return_value=provider
+        ), patch.object(nearfind, "table", return_value=FakeRowsTable([invalid_row])):
+            invalid_row_response = self.client.get("/query/list")
+        self.assertEqual(invalid_row_response.status_code, 200)
+        self.assertEqual(invalid_row_response.json["data"]["queries"], [])
+
+    def test_distance_labels_use_meters_for_short_distances(self):
+        self.assertEqual(haversine(26.7606, 83.3732, 26.7606, 83.3732), 0)
+        self.assertEqual(format_distance(0), "0 m away")
+        self.assertEqual(format_distance(0.0004), "<1 m away")
+        self.assertEqual(format_distance(0.025), "25 m away")
+        self.assertEqual(format_distance(1.234), "1.23 km away")
+        self.assertGreater(haversine(26.7606, 83.3732, 27.0, 84.0), 0)
+
+    def test_invalid_coordinates_cannot_become_a_zero_distance(self):
+        for coordinates in (
+            (None, 83.3732),
+            ("not-a-coordinate", 83.3732),
+            (float("nan"), 83.3732),
+            (26.7606, float("inf")),
+            (91, 83.3732),
+            (26.7606, 181),
+        ):
+            with self.subTest(coordinates=coordinates):
+                self.assertFalse(valid_coordinates(*coordinates))
+                with self.assertRaises(ValueError):
+                    haversine(*coordinates, 26.7606, 83.3732)
+        with self.assertRaises(ValueError):
+            format_distance(float("nan"))
+        with self.assertRaises(ValueError):
+            format_distance(-1)
 
     def test_provider_query_list_excludes_expired_rows_after_cleanup(self):
         self.login_as(role="provider", user_id="22222222-2222-4222-8222-222222222222")
@@ -1305,12 +1776,327 @@ class SecurityTests(unittest.TestCase):
         jpeg = b"\xff\xd8\xff" + b"content"
         webp = b"RIFFxxxxWEBP" + b"content"
         self.assertEqual(validate_image(FileStorage(stream=io.BytesIO(jpeg), filename="file.jpg", content_type="image/jpeg")), ".jpg")
+        self.assertEqual(validate_image(FileStorage(stream=io.BytesIO(jpeg), filename="file.jpeg", content_type="image/jpeg")), ".jpg")
         self.assertEqual(validate_image(FileStorage(stream=io.BytesIO(webp), filename="file.webp", content_type="image/webp")), ".webp")
 
     def test_upload_validation_rejects_extension_mismatch(self):
         png_header = b"\x89PNG\r\n\x1a\n" + b"content"
         with self.assertRaisesRegex(ValueError, "extension"):
             validate_image(FileStorage(stream=io.BytesIO(png_header), filename="file.jpg", content_type="image/png"))
+
+    def test_public_image_upload_accepts_jpeg_suffix_and_uses_bucket_path(self):
+        class FakeBucket:
+            def __init__(self):
+                self.upload_args = None
+
+            def upload(self, path, data, options):
+                self.upload_args = (path, data, options)
+
+            def get_public_url(self, path):
+                return f"https://storage.example/query-images/{path}"
+
+        class FakeStorage:
+            def __init__(self):
+                self.bucket_name = None
+                self.bucket = FakeBucket()
+
+            def from_(self, bucket_name):
+                self.bucket_name = bucket_name
+                return self.bucket
+
+        storage = FakeStorage()
+        client = SimpleNamespace(storage=storage)
+        image = FileStorage(
+            stream=io.BytesIO(b"\xff\xd8\xffvalid jpeg"),
+            filename="reference.jpeg",
+            content_type="image/jpeg",
+        )
+        with patch("services.storage_service.get_supabase", return_value=client):
+            result = upload_public_image("query-images", image, "seeker-id")
+        self.assertEqual(storage.bucket_name, "query-images")
+        path, data, options = storage.bucket.upload_args
+        self.assertRegex(path, r"^seeker-id/[0-9a-f]{32}\.jpg$")
+        self.assertTrue(data.startswith(b"\xff\xd8\xff"))
+        self.assertEqual(options["content-type"], "image/jpeg")
+        self.assertEqual(result["image_url"], f"https://storage.example/query-images/{path}")
+
+    def test_storage_upload_uses_project_url_secret_key_and_unique_safe_paths(self):
+        project_url = "https://project-ref.supabase.co"
+        anon_key = "sb_publishable_test-key"
+        server_key = "sb_secret_server-only-key"
+        with patch.object(nearfind.Config, "SUPABASE_URL", project_url), patch.object(
+            nearfind.Config, "SUPABASE_ANON_KEY", anon_key
+        ), patch.object(nearfind.Config, "SUPABASE_SERVICE_ROLE_KEY", server_key):
+            client = nearfind.get_supabase(admin=True)
+        try:
+            self.assertEqual(client.url, project_url)
+            self.assertEqual(client.key, server_key)
+            self.assertEqual(client.publishable_key, anon_key)
+            requests = []
+
+            def capture_upload(url, headers, content):
+                requests.append((url, headers, content))
+                return httpx.Response(200, json={"Key": "uploaded"})
+
+            with patch.object(client.http, "post", side_effect=capture_upload), patch(
+                "services.storage_service.get_supabase", return_value=client
+            ) as get_client:
+                results = [
+                    upload_public_image(
+                        "query-images",
+                        FileStorage(
+                            stream=io.BytesIO(b"\xff\xd8\xffimage"),
+                            filename="reference.jpg",
+                            content_type="image/jpeg",
+                        ),
+                        "11111111-1111-4111-8111-111111111111",
+                    )
+                    for _ in range(2)
+                ]
+
+            self.assertEqual(get_client.call_count, 2)
+            self.assertTrue(all(call.kwargs == {"admin": True} for call in get_client.call_args_list))
+            self.assertEqual(len(requests), 2)
+            paths = []
+            for url, headers, content in requests:
+                self.assertRegex(
+                    url,
+                    r"^https://project-ref\.supabase\.co/storage/v1/object/query-images/"
+                    r"11111111-1111-4111-8111-111111111111/[0-9a-f]{32}\.jpg$",
+                )
+                paths.append(url.rsplit("/", 1)[-1])
+                self.assertEqual(headers["apikey"], server_key)
+                self.assertNotIn("Authorization", headers)
+                self.assertEqual(headers["Content-Type"], "image/jpeg")
+                self.assertEqual(headers["x-upsert"], "false")
+                self.assertEqual(content, b"\xff\xd8\xffimage")
+            self.assertNotEqual(paths[0], paths[1])
+            self.assertTrue(
+                all(
+                    result["image_url"].startswith(
+                        f"{project_url}/storage/v1/object/public/query-images/"
+                    )
+                    for result in results
+                )
+            )
+        finally:
+            client.http.close()
+
+    def test_post_query_uploads_image_and_persists_returned_url(self):
+        self.login_as(role="seeker")
+        query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        queries = FakeRowsTable()
+        image_url = "https://storage.example/query-images/reference.jpg"
+        with patch.object(nearfind, "table", return_value=queries), patch.object(
+            nearfind, "upload_public_image", return_value={"image_url": image_url}
+        ) as upload, patch.object(nearfind, "notify_nearby_providers"):
+            response = self.client.post(
+                "/query/post",
+                data={
+                    "query_id": query_id,
+                    "item_name": "USB cable",
+                    "category": "Electronics / IT",
+                    "description": "USB-C cable",
+                    "location": "Golghar",
+                    "lat": "26.7606",
+                    "lng": "83.3732",
+                    "radius_km": "5",
+                    "urgency": "urgent",
+                    "expiration": "6",
+                    "csrf_token": "known-csrf-token",
+                    "image": (io.BytesIO(b"\xff\xd8\xffimage"), "reference.jpeg", "image/jpeg"),
+                },
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], f"/seeker/responses/{query_id}")
+        upload.assert_called_once()
+        self.assertEqual(upload.call_args.args[0], "query-images")
+        self.assertEqual(queries.inserted[0]["image_url"], image_url)
+        self.assertEqual(queries.inserted[0]["id"], query_id)
+
+    def test_post_query_without_image_keeps_null_image_url(self):
+        self.login_as(role="seeker")
+        query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        queries = FakeRowsTable()
+        with patch.object(nearfind, "table", return_value=queries), patch.object(
+            nearfind, "upload_public_image"
+        ) as upload, patch.object(nearfind, "notify_nearby_providers"):
+            response = self.client.post(
+                "/query/post",
+                data={
+                    "query_id": query_id,
+                    "item_name": "USB cable",
+                    "category": "Electronics / IT",
+                    "description": "USB-C cable",
+                    "location": "Golghar",
+                    "lat": "26.7606",
+                    "lng": "83.3732",
+                    "urgency": "urgent",
+                    "csrf_token": "known-csrf-token",
+                },
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(queries.inserted[0]["image_url"])
+        upload.assert_not_called()
+
+    def test_post_query_returns_specific_validation_error_for_invalid_image(self):
+        self.login_as(role="seeker")
+        queries = FakeRowsTable()
+        with patch.object(nearfind, "table", return_value=queries), patch.object(
+            nearfind, "upload_public_image", side_effect=ValueError("Invalid image file")
+        ), patch.object(nearfind, "notify_nearby_providers"):
+            response = self.client.post(
+                "/query/post",
+                data={
+                    "query_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                    "item_name": "USB cable",
+                    "category": "Electronics / IT",
+                    "description": "USB-C cable",
+                    "location": "Golghar",
+                    "lat": "26.7606",
+                    "lng": "83.3732",
+                    "urgency": "urgent",
+                    "csrf_token": "known-csrf-token",
+                    "image": (io.BytesIO(b"not an image"), "reference.jpg", "image/jpeg"),
+                },
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid image file", response.get_data(as_text=True))
+        self.assertEqual(queries.inserted, [])
+
+    def test_post_query_reports_safe_image_upload_failure_without_insert(self):
+        self.login_as(role="seeker")
+        queries = FakeRowsTable()
+        with patch.object(nearfind, "table", return_value=queries), patch.object(
+            nearfind, "upload_public_image", side_effect=RuntimeError("secret file contents")
+        ), patch.object(nearfind, "notify_nearby_providers"):
+            with self.assertLogs(nearfind.app.logger, level="ERROR") as captured:
+                response = self.client.post(
+                    "/query/post",
+                    data={
+                        "query_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                        "item_name": "USB cable",
+                        "category": "Electronics / IT",
+                        "description": "USB-C cable",
+                        "location": "Golghar",
+                        "lat": "26.7606",
+                        "lng": "83.3732",
+                        "urgency": "urgent",
+                        "csrf_token": "known-csrf-token",
+                        "image": (io.BytesIO(b"\xff\xd8\xffimage"), "reference.jpg", "image/jpeg"),
+                    },
+                    follow_redirects=False,
+                )
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("couldn&#39;t upload that image", response.get_data(as_text=True))
+        self.assertNotIn("secret file contents", response.get_data(as_text=True))
+        self.assertNotIn("secret file contents", "\n".join(captured.output))
+        self.assertEqual(queries.inserted, [])
+
+    def test_post_query_handles_missing_bucket_or_upload_permission_error(self):
+        self.login_as(role="seeker")
+        for status_code, detail, message in (
+            (404, "Bucket not found", "Image storage is unavailable"),
+            (403, "Not authorized to upload object", "Image storage rejected the upload"),
+        ):
+            with self.subTest(status_code=status_code):
+                queries = FakeRowsTable()
+                with patch.object(nearfind, "table", return_value=queries), patch.object(
+                    nearfind,
+                    "upload_public_image",
+                    side_effect=nearfind.SupabaseRequestError(status_code, detail),
+                ), self.assertLogs(nearfind.app.logger, level="ERROR") as captured:
+                    response = self.client.post(
+                        "/query/post",
+                        data={
+                            "query_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                            "item_name": "USB cable",
+                            "category": "Electronics / IT",
+                            "description": "USB-C cable",
+                            "location": "Golghar",
+                            "lat": "26.7606",
+                            "lng": "83.3732",
+                            "urgency": "urgent",
+                            "csrf_token": "known-csrf-token",
+                            "image": (io.BytesIO(b"\xff\xd8\xffimage"), "reference.jpg", "image/jpeg"),
+                        },
+                        follow_redirects=False,
+                    )
+                self.assertEqual(response.status_code, 502)
+                body = response.get_data(as_text=True)
+                logs = "\n".join(captured.output)
+                self.assertIn(message, body)
+                self.assertIn("submit without an image", body)
+                self.assertIn(f"status={status_code}", logs)
+                self.assertNotIn(detail, body + logs)
+                self.assertEqual(queries.inserted, [])
+
+    def test_post_query_database_failure_returns_safe_retry_message(self):
+        self.login_as(role="seeker")
+        query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+        class FailingInsertTable(FakeRowsTable):
+            def insert(self, payload):
+                raise nearfind.SupabaseRequestError(500, "private database details")
+
+        first_lookup = FakeRowsTable()
+        failing_insert = FailingInsertTable()
+        retry_lookup = FakeRowsTable()
+        with patch.object(
+            nearfind,
+            "table",
+            side_effect=[first_lookup, failing_insert, retry_lookup],
+        ), patch.object(nearfind, "notify_nearby_providers"):
+            response = self.client.post(
+                "/query/post",
+                data={
+                    "query_id": query_id,
+                    "item_name": "USB cable",
+                    "category": "Electronics / IT",
+                    "description": "USB-C cable",
+                    "location": "Golghar",
+                    "lat": "26.7606",
+                    "lng": "83.3732",
+                    "urgency": "urgent",
+                    "csrf_token": "known-csrf-token",
+                },
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 502)
+        body = response.get_data(as_text=True)
+        self.assertIn("already-saved request will not be duplicated", body)
+        self.assertNotIn("private database details", body)
+
+    def test_post_query_retry_does_not_upload_or_insert_existing_query_again(self):
+        self.login_as(role="seeker")
+        query_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        queries = FakeRowsTable(single={"id": query_id})
+        with patch.object(nearfind, "table", return_value=queries), patch.object(
+            nearfind, "upload_public_image"
+        ) as upload, patch.object(nearfind, "notify_nearby_providers"):
+            response = self.client.post(
+                "/query/post",
+                data={
+                    "query_id": query_id,
+                    "item_name": "USB cable",
+                    "category": "Electronics / IT",
+                    "description": "USB-C cable",
+                    "location": "Golghar",
+                    "lat": "26.7606",
+                    "lng": "83.3732",
+                    "urgency": "urgent",
+                    "csrf_token": "known-csrf-token",
+                    "image": (io.BytesIO(b"\xff\xd8\xffimage"), "reference.jpeg", "image/jpeg"),
+                },
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], f"/seeker/responses/{query_id}")
+        upload.assert_not_called()
+        self.assertEqual(queries.inserted, [])
 
     def test_non_finite_coordinates_are_rejected(self):
         with self.assertRaises(ValueError):
@@ -1352,6 +2138,75 @@ class SecurityTests(unittest.TestCase):
         self.login_as(role="provider")
         self.assertEqual(self.client.get("/seeker/dashboard").status_code, 302)
         self.assertEqual(self.client.get("/seeker/post").status_code, 302)
+
+    def test_provider_dashboard_still_renders_when_live_location_table_is_missing(self):
+        self.login_as(role="provider")
+        with patch.object(nearfind, "current_profile", return_value={"role": "provider", "is_active": True}), patch.object(
+            nearfind, "provider_response_summary", return_value={"total": 0, "available": 0, "selected": 0, "rejected": 0, "sold": 0}
+        ), patch.object(nearfind, "selected_provider_responses", return_value=[]), patch.object(
+            nearfind, "table", side_effect=nearfind.SupabaseRequestError(404, "provider_locations is missing")
+        ):
+            response = self.client.get("/provider/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Nearby requests", response.data)
+
+    def test_non_manager_cannot_update_hospital_availability(self):
+        self.login_as(role="provider")
+        with patch.object(nearfind, "current_profile", return_value={"role": "provider", "is_active": True}), patch.object(
+            nearfind, "table"
+        ) as table_mock:
+            response = self.client.post(
+                "/hospital/availability",
+                data={"general_available": "4"},
+                headers={"X-CSRFToken": "known-csrf-token"},
+            )
+        self.assertEqual(response.status_code, 403)
+        table_mock.assert_not_called()
+
+    def test_hospital_manager_can_update_only_own_hospital_availability(self):
+        hospital_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        self.login_as(role="provider")
+        hospital = {"id": hospital_id, "name": "City Hospital", "address": "Main Road"}
+        profile = {"role": "provider", "is_active": True, "is_hospital_manager": True}
+        existing_hospital = FakeRowsTable(single=hospital)
+        second_hospital = FakeRowsTable(single=hospital)
+        current_availability = FakeRowsTable(single=None)
+        availability_insert = FakeRowsTable()
+        hospital_update = FakeRowsTable()
+        with patch.object(nearfind, "current_profile", return_value=profile), patch.object(
+            nearfind,
+            "table",
+            side_effect=[existing_hospital, second_hospital, current_availability, availability_insert, hospital_update],
+        ):
+            response = self.client.post(
+                "/hospital/availability",
+                data={
+                    "hospital_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                    "general_available": "8",
+                    "icu_available": "2",
+                    "oxygen_available": "3",
+                    "emergency_available": "1",
+                    "isolation_available": "0",
+                },
+                headers={"X-CSRFToken": "known-csrf-token"},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(availability_insert.inserted[0]["hospital_id"], hospital_id)
+        self.assertEqual(availability_insert.inserted[0]["icu_available"], 2)
+        self.assertEqual(hospital_update.updated[0]["updated_at"], availability_insert.inserted[0]["updated_at"])
+
+    def test_hospital_manager_rejects_negative_bed_counts(self):
+        hospital = {"id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "name": "City Hospital", "address": "Main Road"}
+        self.login_as(role="provider")
+        with patch.object(nearfind, "current_profile", return_value={"is_hospital_manager": True}), patch.object(
+            nearfind, "table", return_value=FakeRowsTable(single=hospital)
+        ):
+            response = self.client.post(
+                "/hospital/availability",
+                data={"general_available": "-1"},
+                headers={"X-CSRFToken": "known-csrf-token"},
+            )
+        self.assertEqual(response.status_code, 400)
 
     def test_supabase_technical_error_is_not_exposed(self):
         self.login_as()

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow wide">
+  <div class="hospital-dashboard">
+    <header class="dashboard-head compact">
+      <div>
+        <p class="eyebrow">Hospital manager console</p>
+        <h1>{{ hospital.name }}</h1>
+        <p>{{ hospital.address }} {% if hospital.phone %}· Contact: <a href="tel:{{ hospital.phone }}">{{ hospital.phone }}</a>{% endif %}</p>
+        <p class="notice">Publish the availability your hospital has most recently verified. NearFind does not guarantee admission.</p>
+      </div>
+      <div>
+        <span class="status-chip {{ 'available' if availability else 'open' }}">{{ 'Published' if availability else 'Not updated' }}</span>
+        {% if not hospital.is_verified %}
+        <span class="status-chip open" title="Contact administrative team for verification badge">Verification Pending</span>
+        {% endif %}
+      </div>
+    </header>
+
+    <section class="metric-grid compact" style="margin: 16px 0 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px;">
+      <div class="panel" style="padding: 12px; text-align: center;">
+        <strong style="font-size: 24px; color: var(--gold);">{{ availability.get('general_available', 0) }}</strong>
+        <span class="muted" style="display: block; font-size: 12px;">General</span>
+      </div>
+      <div class="panel" style="padding: 12px; text-align: center;">
+        <strong style="font-size: 24px; color: var(--danger);">{{ availability.get('icu_available', 0) }}</strong>
+        <span class="muted" style="display: block; font-size: 12px;">ICU</span>
+      </div>
+      <div class="panel" style="padding: 12px; text-align: center;">
+        <strong style="font-size: 24px; color: var(--blue);">{{ availability.get('oxygen_available', 0) }}</strong>
+        <span class="muted" style="display: block; font-size: 12px;">Oxygen</span>
+      </div>
+      <div class="panel" style="padding: 12px; text-align: center;">
+        <strong style="font-size: 24px; color: var(--green);">{{ availability.get('emergency_available', 0) }}</strong>
+        <span class="muted" style="display: block; font-size: 12px;">Emergency</span>
+      </div>
+      <div class="panel" style="padding: 12px; text-align: center;">
+        <strong style="font-size: 24px; color: var(--gold);">{{ availability.get('isolation_available', 0) }}</strong>
+        <span class="muted" style="display: block; font-size: 12px;">Isolation</span>
+      </div>
+    </section>
+
+    <form class="panel form-card" method="post" action="{{ url_for('update_hospital_availability') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div>
+        <h2>Update Current Bed Availability</h2>
+        <p class="muted">Counts must reflect your latest verified report. Updates are immediately visible to nearby emergency seekers.</p>
+      </div>
+      <div class="grid two">
+        {% for field, label in [
+          ('general_available', 'General Beds'),
+          ('icu_available', 'ICU Beds'),
+          ('oxygen_available', 'Oxygen-supported Beds'),
+          ('emergency_available', 'Emergency / Trauma Beds'),
+          ('isolation_available', 'Isolation Beds')
+        ] %}
+        <label for="{{ field }}">{{ label }}
+          <input id="{{ field }}" name="{{ field }}" type="number" min="0" step="1" value="{{ availability.get(field, 0) }}" required>
+        </label>
+        {% endfor %}
+      </div>
+      {% if availability.updated_at %}
+      <p class="muted">Last updated: {{ availability.updated_at }}</p>
+      {% endif %}
+      <div class="actions">
+        <button class="btn primary" type="submit">Publish Availability</button>
+      </div>
+    </form>
+
+    <section class="panel" style="margin-top: 24px;">
+      <div class="section-heading">
+        <h2>Incoming Emergency Bed Holds</h2>
+        {% set active_count = namespace(value=0) %}
+        {% for h in holds %}{% if h.status == 'held' %}{% set active_count.value = active_count.value + 1 %}{% endif %}{% endfor %}
+        <span class="count-label">{{ active_count.value }} Active</span>
+      </div>
+      <p class="muted">Review temporary 2-hour bed holds placed by seekers. When a patient arrives at intake, click <strong>Admit Patient</strong>. If they cancel or do not arrive, click <strong>Cancel Hold</strong> to release capacity back to inventory.</p>
+
+      {% if holds %}
+      <div class="table-responsive" style="overflow-x: auto; margin-top: 16px;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 2px solid rgba(255,255,255,0.15); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
+              <th style="padding: 10px 12px;">Seeker / Patient</th>
+              <th style="padding: 10px 12px;">Contact Phone</th>
+              <th style="padding: 10px 12px;">Bed Category</th>
+              <th style="padding: 10px 12px;">Status</th>
+              <th style="padding: 10px 12px;">Reserved At</th>
+              <th style="padding: 10px 12px;">Expires</th>
+              <th style="padding: 10px 12px; text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for h in holds %}
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 14px;">
+              <td style="padding: 12px;">
+                <strong>{{ h.users.name if h.users and h.users.name else "Emergency Patient" }}</strong>
+                {% if h.notes %}<br><span class="muted" style="font-size: 12px;">Notes: {{ h.notes }}</span>{% endif %}
+              </td>
+              <td style="padding: 12px;">
+                {% if h.users and h.users.phone %}
+                <a href="tel:{{ h.users.phone }}" style="color: var(--teal); font-weight: 600;">{{ h.users.phone }}</a>
+                {% else %}
+                <span class="muted">Not provided</span>
+                {% endif %}
+              </td>
+              <td style="padding: 12px;">
+                <span style="font-weight: 600; text-transform: capitalize;">{{ h.bed_type }}</span>
+              </td>
+              <td style="padding: 12px;">
+                <span class="status-chip {{ 'available' if h.status == 'admitted' else ('selected' if h.status == 'held' else 'open') }}">
+                  {{ h.status|replace('_', ' ')|title }}
+                </span>
+              </td>
+              <td style="padding: 12px; font-size: 13px;">{{ h.created_at }}</td>
+              <td style="padding: 12px; font-size: 13px;">
+                {% if h.status == 'held' %}
+                  <span style="color: var(--gold);">{{ h.expires_at }}</span>
+                {% else %}
+                  <span class="muted">{{ h.expires_at }}</span>
+                {% endif %}
+              </td>
+              <td style="padding: 12px; text-align: right;">
+                {% if h.status == 'held' %}
+                <div style="display: inline-flex; gap: 8px; justify-content: flex-end;">
+                  <form method="post" action="{{ url_for('admit_hospital_bed_hold', hold_id=h.id) }}" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn small primary" type="submit" onclick="return confirm('Confirm patient arrival and admission? This finalizes the bed reservation.');">Admit Patient</button>
+                  </form>
+                  <form method="post" action="{{ url_for('cancel_hospital_bed_hold', hold_id=h.id) }}" style="display: inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn small ghost" type="submit" onclick="return confirm('Cancel this hold? The bed capacity will be restored to inventory.');">Cancel Hold</button>
+                  </form>
+                </div>
+                {% else %}
+                <span class="muted" style="font-size: 13px;">Finalized</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="empty" style="margin-top: 16px;">No emergency bed holds recorded for this facility yet.</p>
+      {% endif %}
+    </section>
+
+    <p class="emergency-note"><strong>Important:</strong> For medical emergencies, direct patients to contact local emergency medical services or your hospital intake directly. NearFind displays verified availability reports to assist urgent discovery.</p>
+  </div>
+</section>
+{% endblock %}

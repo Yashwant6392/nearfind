@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow wide">
+  <form class="panel form-card driver-availability-form" method="post" action="{{ url_for('provider_driver_availability') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input id="availabilityTimezoneOffset" name="timezone_offset_minutes" type="hidden">
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+      <p class="eyebrow" style="margin: 0;">Approved driver</p>
+      <span class="status-chip {{ 'available' if availability and availability.is_active else 'open' }}" id="availabilityStatusChip">
+        {{ "Published" if availability and availability.is_active else "Not Published" }}
+      </span>
+    </div>
+
+    <h1>Availability and location sharing</h1>
+    <p class="form-intro">Publish one future availability window. Current shared location is used only to find nearby requests and is not shown to seekers before booking.</p>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 12px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--line-subtle); flex-wrap: wrap; gap: 10px;">
+      <div>
+        <strong style="color: #FFFFFF; font-size: 13.5px; display: block;">Live Availability Publishing</strong>
+        <span id="availabilityToggleStatusText" class="muted" style="font-size: 12px;">
+          {{ "Schedule is active and visible to nearby seekers." if availability and availability.is_active else "Schedule is inactive. Set window and publish below." }}
+        </span>
+      </div>
+      <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0; cursor: pointer;">
+        <input type="checkbox" id="driverAvailabilityToggle" {% if availability and availability.is_active %}checked{% endif %} style="opacity: 0; width: 0; height: 0;">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <label for="availabilityStart">Available from
+      <input id="availabilityStart" name="starts_at" type="datetime-local" value="{{ availability.starts_at[:16] if availability and availability.starts_at else '' }}" required>
+    </label>
+    <label for="availabilityEnd">Available until
+      <input id="availabilityEnd" name="ends_at" type="datetime-local" value="{{ availability.ends_at[:16] if availability and availability.ends_at else '' }}" required>
+    </label>
+    <label class="driver-location-consent" for="sharingEnabled">
+      <input id="sharingEnabled" name="sharing_enabled" type="checkbox" {% if location.sharing_enabled %}checked{% endif %}>
+      <span>Share my current location to appear in nearby driver discovery</span>
+    </label>
+    <p class="muted">Current saved sharing setting: <strong id="sharingSettingLabel" style="color: {{ 'var(--lime)' if location.sharing_enabled else 'var(--muted)' }};">{{ "On" if location.sharing_enabled else "Off" }}</strong>{% if location.updated_at %} · Updated {{ location.updated_at }}{% endif %}</p>
+    <label for="driverLatitude">Current latitude
+      <input id="driverLatitude" name="lat" type="number" min="-90" max="90" step="any" value="{{ location.lat if location.lat is not none else '' }}" inputmode="decimal">
+    </label>
+    <label for="driverLongitude">Current longitude
+      <input id="driverLongitude" name="lng" type="number" min="-180" max="180" step="any" value="{{ location.lng if location.lng is not none else '' }}" inputmode="decimal">
+    </label>
+    <button class="btn" type="button" id="useDriverCurrentLocation">Refresh shared location from this device</button>
+    <p class="location-status" id="driverAvailabilityStatus" role="status" aria-live="polite">
+      {{ "Location sharing is enabled. Fresh coordinates are required for discovery." if location.sharing_enabled else "Turn location sharing on before refreshing. Fresh coordinates are required for discovery." }}
+    </p>
+    <button class="btn primary" type="submit" id="publishAvailabilityBtn">
+      {{ "Update Availability" if availability and availability.is_active else "Publish Availability" }}
+    </button>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/driver-availability.js') }}"></script>
+{% endblock %}

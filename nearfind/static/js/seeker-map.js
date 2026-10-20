@@ -11,6 +11,13 @@
   const details = document.getElementById("responseDetails");
   const resolveBtn = document.getElementById("resolveBtn");
   const queryStatus = document.getElementById("queryStatus");
+
+  // Lightbox elements
+  const lightbox = document.getElementById("imageLightbox");
+  const lightboxImg = document.getElementById("lightboxImage");
+  const lightboxCaption = document.getElementById("lightboxCaption");
+  const lightboxClose = document.querySelector("[data-close-lightbox]");
+
   const markers = new Map();
   const knownResponses = new Set();
   const selectingResponses = new Set();
@@ -37,18 +44,61 @@
   });
   const seekerMarker = L.marker([query.lat, query.lng], { icon: icon("blue") }).addTo(map).bindPopup("Your request location");
 
-  function addImage(slot, src, alt) {
+  function openLightbox(src, caption) {
+    if (!lightbox || !src) return;
+    if (lightboxImg) lightboxImg.src = src;
+    if (lightboxCaption) lightboxCaption.textContent = caption || "";
+    if (typeof lightbox.showModal === "function") {
+      lightbox.showModal();
+    } else {
+      lightbox.setAttribute("open", "");
+    }
+  }
+
+  function closeLightbox() {
+    if (!lightbox) return;
+    if (typeof lightbox.close === "function") {
+      lightbox.close();
+    } else {
+      lightbox.removeAttribute("open");
+    }
+  }
+
+  lightboxClose?.addEventListener("click", closeLightbox);
+  lightbox?.addEventListener("click", (event) => {
+    if (event.target === lightbox) closeLightbox();
+  });
+
+  function addImage(slot, src, alt, caption) {
+    if (!slot) return;
     slot.replaceChildren();
     if (src) {
       const img = document.createElement("img");
       img.src = src;
-      img.alt = alt;
-      img.addEventListener("error", () => addImage(slot, "", alt));
+      img.alt = alt || "Product image";
+      img.addEventListener("error", () => addImage(slot, "", alt, caption));
       slot.appendChild(img);
+
+      const hint = document.createElement("span");
+      hint.className = "zoom-hint";
+      hint.textContent = "🔍 Enlarge";
+      slot.appendChild(hint);
+
+      const trigger = () => openLightbox(src, caption || alt);
+      slot.onclick = trigger;
+      slot.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          trigger();
+        }
+      };
     } else {
       const placeholder = document.createElement("span");
+      placeholder.className = "muted";
       placeholder.textContent = "No image";
       slot.appendChild(placeholder);
+      slot.onclick = null;
+      slot.onkeydown = null;
     }
   }
 
@@ -67,7 +117,9 @@
   function formatDistance(value) {
     if (value === null || value === undefined || !Number.isFinite(Number(value))) return "Distance unavailable";
     const distance = Number(value);
-    return distance < 0.1 ? `${Math.round(distance * 1000)} m` : `${distance.toFixed(2)} km`;
+    if (distance < 0) return "Distance unavailable";
+    const label = distance < 0.1 ? `${Math.round(distance * 1000)} m` : `${distance.toFixed(2)} km`;
+    return `${label} straight-line`;
   }
 
   function formatResponseTime(value) {
@@ -92,6 +144,11 @@
     return [...responses].sort((left, right) => {
       const availability = Number(right.status === "available") - Number(left.status === "available");
       if (sort === "best" && availability) return availability;
+      if (sort === "similarity") {
+        const leftSim = left.similarity && Number.isFinite(Number(left.similarity.score)) ? Number(left.similarity.score) : -1;
+        const rightSim = right.similarity && Number.isFinite(Number(right.similarity.score)) ? Number(right.similarity.score) : -1;
+        if (leftSim !== rightSim) return rightSim - leftSim;
+      }
       const leftDistance = left.distance === null ? Infinity : Number(left.distance);
       const rightDistance = right.distance === null ? Infinity : Number(right.distance);
       const leftPrice = numericPrice(left.price) ?? Infinity;
@@ -107,6 +164,7 @@
 
   function filteredResponses(responses) {
     const filter = responseFilter?.value || "all";
+    if (filter === "high_match") return responses.filter((response) => (response.similarity?.score ?? 0) >= 80);
     if (filter === "price") return responses.filter((response) => numericPrice(response.price) !== null);
     if (filter === "image") return responses.filter((response) => Boolean(response.image_url));
     if (filter === "nearby") return responses.filter((response) => response.distance !== null && Number(response.distance) <= 2);
@@ -114,14 +172,63 @@
   }
 
   function actionUrls(response) {
-    const phone = response.phone || "";
+    const phone = window.NearFindPhoneUrl?.(response.phone) || "";
     const provider = response.business_name || response.provider_name || "provider";
     const message = encodeURIComponent(`Hi ${provider}, I found your NearFind response for ${query.item_name}. Is it still available?`);
+    const directions = response.status === "selected"
+      ? (window.NearFindNavigationUrl?.(response.provider_lat, response.provider_lng, query.lat, query.lng) || "")
+      : "";
     return {
-      call: phone ? `tel:${phone}` : "",
-      whatsapp: phone ? `https://wa.me/${phone.replace(/\D/g, "")}?text=${message}` : "",
-      directions: "",
+      call: phone,
+      whatsapp: phone ? `https://wa.me/${phone.replace(/^tel:/, "").replace(/\D/g, "")}?text=${message}` : "",
+      directions,
     };
+  }
+
+  function providerLocationState(location) {
+    if (!location) return { state: "unavailable", message: "Location unavailable. Sharing may be off." };
+    if (!Number.isFinite(Number(location.lat)) || !Number.isFinite(Number(location.lng))) {
+      return { state: "unavailable", message: "Coordinates unavailable." };
+    }
+    const updated = new Date(location.updated_at).getTime();
+    if (!Number.isFinite(updated)) return { state: "stale", message: "Location may be outdated." };
+    const ageMinutes = Math.max(0, Math.floor((Date.now() - updated) / 60000));
+    if (ageMinutes > 15) return { state: "stale", message: "Location may be outdated." };
+    if (ageMinutes < 1) return { state: "available", message: "Location available · updated recently." };
+    return { state: "available", message: `Location available · updated ${ageMinutes} minute${ageMinutes === 1 ? "" : "s"} ago.` };
+  }
+
+  function setProviderLocationMessage(location) {
+    const result = providerLocationState(location);
+    const card = responsesList.querySelector(`[data-response-id="${selectedResponseId}"]`);
+    const cardStatus = card?.querySelector("[data-location-status]");
+    if (cardStatus) {
+      cardStatus.hidden = false;
+      cardStatus.className = `notice location-status ${result.state}`;
+      cardStatus.textContent = result.message;
+    }
+    const detailStatus = details?.querySelector("[data-detail-location]");
+    if (detailStatus && selectedResponseId) {
+      detailStatus.className = `notice location-status ${result.state}`;
+      detailStatus.textContent = result.message;
+    }
+    if (location && Number.isFinite(Number(location.lat)) && Number.isFinite(Number(location.lng))) {
+      const liveNavUrl = window.NearFindNavigationUrl?.(location.lat, location.lng, query.lat, query.lng) || "";
+      const cardNav = card?.querySelector("[data-navigation]") || card?.querySelector("[data-directions]");
+      if (cardNav && liveNavUrl) {
+        cardNav.href = liveNavUrl;
+        cardNav.classList.remove("disabled");
+        cardNav.removeAttribute("aria-disabled");
+        cardNav.title = "Open road directions in Google Maps";
+      }
+      const detailNav = details?.querySelector("[data-detail-navigation]") || details?.querySelector("[data-detail-directions]");
+      if (detailNav && liveNavUrl) {
+        detailNav.href = liveNavUrl;
+        detailNav.classList.remove("disabled");
+        detailNav.removeAttribute("aria-disabled");
+        detailNav.title = "Open road directions in Google Maps";
+      }
+    }
   }
 
   function responsePopup(response) {
@@ -129,11 +236,11 @@
     const title = document.createElement("strong");
     title.textContent = response.business_name || response.provider_name || "Provider";
     const meta = document.createElement("p");
-    meta.textContent = `${response.distance ?? "?"} km away - ${response.status}`;
+    meta.textContent = `${formatDistance(response.distance)} - ${statusLabel(response.status)}`;
     const message = document.createElement("p");
     message.textContent = response.message || "No message provided";
     const price = document.createElement("strong");
-    price.textContent = response.price || "Price not shared";
+    price.textContent = formatPrice(response.price);
     popup.append(title, meta, message, price);
     if (response.image_url) {
       const image = document.createElement("img");
@@ -164,7 +271,6 @@
 
   async function fetchSelectedProviderLocation() {
     if (!selectedResponseId || terminalStatuses.has(query.status) || document.hidden) return;
-    const status = responsesList.querySelector(`[data-response-id="${selectedResponseId}"] [data-location-status]`);
     try {
       const { payload } = await window.NearFindFetch(`/query/${query.id}/provider-location`, { cache: "no-store" });
       liveProviderLocation = payload.data;
@@ -172,25 +278,15 @@
       if (!liveProviderLocation) {
         marker?.remove();
         markers.delete(selectedResponseId);
-        if (status) {
-          status.hidden = false;
-          status.textContent = "Provider location unavailable";
-        }
+        setProviderLocationMessage(null);
         return;
       }
       if (marker) {
         marker.setLatLng([liveProviderLocation.lat, liveProviderLocation.lng]);
       }
-      if (status) {
-        status.hidden = false;
-        const age = Math.max(0, Math.round((Date.now() - new Date(liveProviderLocation.updated_at).getTime()) / 1000));
-        status.textContent = `Location available · ${liveProviderLocation.distance_km ?? "?"} km away · updated ${age} sec ago`;
-      }
+      setProviderLocationMessage(liveProviderLocation);
     } catch (error) {
-      if (status) {
-        status.hidden = false;
-        status.textContent = "Provider location unavailable";
-      }
+      setProviderLocationMessage(null);
     }
   }
 
@@ -243,44 +339,141 @@
     metaParts.push(formatDistance(response.distance));
     node.querySelector("[data-name]").textContent = providerName;
     node.querySelector("[data-meta]").textContent = metaParts.join(" - ");
+
     const chip = node.querySelector("[data-status]");
     chip.textContent = statusLabel(response.status);
-    chip.classList.add(response.status);
+    chip.className = `status-chip ${response.status}`;
+
+    if (response.status === "selected") {
+      node.classList.add("selected");
+    }
+
     node.querySelector("[data-message]").textContent = response.message || "";
     node.querySelector("[data-price]").textContent = formatPrice(response.price);
     node.querySelector("[data-distance]").textContent = formatDistance(response.distance);
     node.querySelector("[data-time]").textContent = formatResponseTime(response.created_at);
-    addImage(node.querySelector("[data-reference]"), query.image_url, "Your reference");
-    addImage(node.querySelector("[data-product]"), response.image_url, "Provider product");
+
+    addImage(node.querySelector("[data-reference]"), query.image_url, "Your reference", "Your reference product image");
+    addImage(node.querySelector("[data-product]"), response.image_url, "Provider product", `${providerName}'s product image`);
+
+    const similarityBox = node.querySelector("[data-similarity-box]");
+    if (similarityBox) {
+      if (response.similarity && response.similarity.score !== null && response.similarity.score !== undefined) {
+        similarityBox.hidden = false;
+        const scoreEl = node.querySelector("[data-similarity-score]");
+        const levelEl = node.querySelector("[data-similarity-level]");
+        const disclaimerEl = node.querySelector("[data-similarity-disclaimer]");
+        if (scoreEl) {
+          scoreEl.textContent = `Estimated Visual Similarity: ${response.similarity.score}%`;
+        }
+        if (levelEl) {
+          levelEl.textContent = response.similarity.level || "";
+          levelEl.className = `similarity-level match-${(response.similarity.level || "").toLowerCase().replace(/\s+/g, "-")}`;
+        }
+        if (disclaimerEl) {
+          disclaimerEl.textContent = response.similarity.disclaimer || "Similarity score is an automated visual estimate and does not guarantee that products are identical or authentic.";
+        }
+      } else {
+        similarityBox.hidden = true;
+      }
+    }
+
     const urls = actionUrls(response);
     const select = node.querySelector("[data-select]");
     select.disabled = response.status !== "available" || query.status !== "open";
     select.textContent = response.status === "selected" ? "Provider Selected" : "Select Provider";
     select.addEventListener("click", () => selectProvider(response.id, select));
+
     const call = node.querySelector("[data-call]");
     const whatsapp = node.querySelector("[data-whatsapp]");
-    const directions = node.querySelector("[data-directions]");
+    const navigation = node.querySelector("[data-navigation]") || node.querySelector("[data-directions]");
+    const viewOnMap = node.querySelector("[data-view-on-map]");
     const chat = node.querySelector("[data-chat]");
     const locationStatus = node.querySelector("[data-location-status]");
     const detailsButton = node.querySelector("[data-details]");
-    call.href = urls.call || "#";
-    whatsapp.href = urls.whatsapp || "#";
-    directions.href = urls.directions || "#";
-    directions.hidden = true;
+
+    if (urls.call) {
+      call.href = urls.call;
+      call.classList.remove("disabled");
+      call.removeAttribute("aria-disabled");
+    } else {
+      call.href = "#";
+      call.classList.add("disabled");
+      call.setAttribute("aria-disabled", "true");
+    }
+
+    if (urls.whatsapp) {
+      whatsapp.href = urls.whatsapp;
+      whatsapp.classList.remove("disabled");
+      whatsapp.removeAttribute("aria-disabled");
+    } else {
+      whatsapp.href = "#";
+      whatsapp.classList.add("disabled");
+      whatsapp.setAttribute("aria-disabled", "true");
+    }
+
     if (response.status === "selected") {
       node.dataset.responseId = response.id;
-      locationStatus.hidden = false;
-      locationStatus.textContent = "Provider location unavailable";
       chat.href = `/chat/response/${response.id}`;
       chat.hidden = false;
-    } else if (response.status === "rejected") {
+
+      const navCheck = window.NearFindCheckNavigationEndpoints?.(response.provider_lat, response.provider_lng, query.lat, query.lng);
+      navigation.hidden = false;
+      if (urls.directions && navCheck?.canNavigate) {
+        navigation.href = urls.directions;
+        navigation.classList.remove("disabled");
+        navigation.removeAttribute("aria-disabled");
+        navigation.title = "Open road route in external navigation (Google Maps)";
+      } else {
+        navigation.href = "#";
+        navigation.classList.add("disabled");
+        navigation.setAttribute("aria-disabled", "true");
+        navigation.title = navCheck?.message || "Provider location is not yet available for navigation.";
+      }
+      navigation.addEventListener("click", (e) => {
+        if (!urls.directions || !navCheck?.canNavigate || navigation.getAttribute("href") === "#") {
+          e.preventDefault();
+          const errMessage = navCheck?.message || "Provider location coordinates are unavailable.";
+          window.NearFindToast(errMessage, "error");
+        }
+      });
+
       locationStatus.hidden = false;
-      locationStatus.textContent = "This provider was not selected.";
+      if (navCheck?.canNavigate) {
+        locationStatus.className = "notice location-status available";
+        locationStatus.textContent = "Provider selected. Road route navigation is ready.";
+      } else {
+        locationStatus.className = "notice location-status unavailable";
+        locationStatus.textContent = "Waiting for shared provider location. Road navigation will activate when coordinates are available.";
+      }
+    } else {
+      navigation.hidden = true;
+      if (response.status === "rejected") {
+        locationStatus.hidden = false;
+        locationStatus.className = "notice";
+        locationStatus.textContent = "This provider was not selected.";
+      }
     }
+
+    const hasCoords = Number.isFinite(Number(response.provider_lat)) && Number.isFinite(Number(response.provider_lng));
+    if (viewOnMap) {
+      if (hasCoords) {
+        viewOnMap.disabled = false;
+        viewOnMap.title = "Center and view marker on map";
+        viewOnMap.addEventListener("click", () => {
+          map.flyTo([response.provider_lat, response.provider_lng], 15, { duration: 0.8 });
+          markers.get(response.id)?.openPopup();
+          if (window.innerWidth <= 960) {
+            mapEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+      } else {
+        viewOnMap.disabled = true;
+        viewOnMap.title = "Coordinates not available on map";
+      }
+    }
+
     detailsButton.addEventListener("click", () => showDetails(response));
-    [call, whatsapp, directions].forEach((link) => {
-      if (link.getAttribute("href") === "#") link.classList.add("disabled");
-    });
     return node;
   }
 
@@ -327,6 +520,7 @@
       showListMessage("No providers have responded yet. Keep this page open. We'll show new responses when they arrive.");
       updateMarkers(responses);
       syncResolveButton();
+      map.invalidateSize();
       return;
     }
     const visibleResponses = filteredResponses(sortedResponses(responses));
@@ -338,6 +532,7 @@
     updateMarkers(responses);
     fetchSelectedProviderLocation();
     syncResolveButton();
+    map.invalidateSize();
   }
 
   function showDetails(response) {
@@ -349,18 +544,101 @@
     details.querySelector("[data-detail-price]").textContent = formatPrice(response.price);
     details.querySelector("[data-detail-distance]").textContent = formatDistance(response.distance);
     details.querySelector("[data-detail-time]").textContent = formatResponseTime(response.created_at);
-    addImage(details.querySelector("[data-detail-image]"), response.image_url, "Provider product");
-    details.querySelector("[data-detail-location]").textContent = response.status === "selected"
-      ? (response.location_available ? "Provider location: Available" : "Provider location: Unavailable")
-      : "Provider location is shown only after selection.";
+    addImage(details.querySelector("[data-detail-image]"), response.image_url, "Provider product", `${response.provider_name || "Provider"} Product`);
+
+    const detailSimBox = details.querySelector("[data-detail-similarity-box]");
+    if (detailSimBox) {
+      if (response.similarity && response.similarity.score !== null && response.similarity.score !== undefined) {
+        detailSimBox.hidden = false;
+        const detailScore = details.querySelector("[data-detail-similarity-score]");
+        const detailLevel = details.querySelector("[data-detail-similarity-level]");
+        const detailDisclaimer = details.querySelector("[data-detail-similarity-disclaimer]");
+        if (detailScore) {
+          detailScore.textContent = `Estimated Visual Similarity: ${response.similarity.score}%`;
+        }
+        if (detailLevel) {
+          detailLevel.textContent = response.similarity.level || "";
+          detailLevel.className = `similarity-level match-${(response.similarity.level || "").toLowerCase().replace(/\s+/g, "-")}`;
+        }
+        if (detailDisclaimer) {
+          detailDisclaimer.textContent = response.similarity.disclaimer || "Similarity score is an automated visual estimate and does not guarantee that products are identical or authentic.";
+        }
+      } else {
+        detailSimBox.hidden = true;
+      }
+    }
+
     const select = details.querySelector("[data-detail-select]");
     select.hidden = response.status !== "available" || query.status !== "open";
     select.disabled = false;
     select.textContent = "Select Provider";
     select.onclick = () => selectProvider(response.id, select);
+
     const chat = details.querySelector("[data-detail-chat]");
     chat.hidden = response.status !== "selected";
     chat.href = `/chat/response/${response.id}`;
+
+    const navigation = details.querySelector("[data-detail-navigation]") || details.querySelector("[data-detail-directions]");
+    const call = details.querySelector("[data-detail-call]");
+    const viewMap = details.querySelector("[data-detail-view-map]");
+    const locationStatus = details.querySelector("[data-detail-location]");
+    const urls = actionUrls(response);
+
+    if (response.status === "selected") {
+      const navCheck = window.NearFindCheckNavigationEndpoints?.(response.provider_lat, response.provider_lng, query.lat, query.lng);
+      navigation.hidden = false;
+      if (urls.directions && navCheck?.canNavigate) {
+        navigation.href = urls.directions;
+        navigation.classList.remove("disabled");
+        navigation.removeAttribute("aria-disabled");
+        navigation.title = "Open road route in external navigation (Google Maps)";
+      } else {
+        navigation.href = "#";
+        navigation.classList.add("disabled");
+        navigation.setAttribute("aria-disabled", "true");
+        navigation.title = navCheck?.message || "Provider location is not yet available for navigation.";
+      }
+      navigation.onclick = (e) => {
+        if (!urls.directions || !navCheck?.canNavigate || navigation.getAttribute("href") === "#") {
+          e.preventDefault();
+          const errMessage = navCheck?.message || "Provider location coordinates are unavailable.";
+          window.NearFindToast(errMessage, "error");
+        }
+      };
+      locationStatus.className = navCheck?.canNavigate ? "notice location-status available" : "notice location-status unavailable";
+      locationStatus.textContent = navCheck?.canNavigate
+        ? "Provider selected. Road route navigation is ready."
+        : "Waiting for shared provider location. Road navigation will activate when coordinates are available.";
+    } else {
+      navigation.hidden = true;
+      locationStatus.className = "notice location-status unavailable";
+      locationStatus.textContent = "Provider location and navigation are shown only after selection.";
+    }
+
+    if (urls.call) {
+      call.hidden = false;
+      call.href = urls.call;
+    } else {
+      call.hidden = true;
+    }
+
+    const hasCoords = Number.isFinite(Number(response.provider_lat)) && Number.isFinite(Number(response.provider_lng));
+    if (viewMap) {
+      if (hasCoords) {
+        viewMap.disabled = false;
+        viewMap.onclick = () => {
+          if (typeof details.close === "function") details.close();
+          map.flyTo([response.provider_lat, response.provider_lng], 15, { duration: 0.8 });
+          markers.get(response.id)?.openPopup();
+          if (window.innerWidth <= 960) {
+            mapEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        };
+      } else {
+        viewMap.disabled = true;
+      }
+    }
+
     if (typeof details.showModal === "function") details.showModal();
   }
 
@@ -433,6 +711,19 @@
       }
     });
   }
+
+  // Ensure map reflow on resize and container size adjustments
+  window.addEventListener("resize", () => {
+    map.invalidateSize();
+  });
+  if ("ResizeObserver" in window) {
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    resizeObserver.observe(mapEl);
+  }
+  setTimeout(() => map.invalidateSize(), 150);
+  setTimeout(() => map.invalidateSize(), 600);
 
   syncResolveButton();
   fetchResponses();

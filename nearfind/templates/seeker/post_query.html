@@ -3,6 +3,7 @@
 <section class="narrow wide">
   <form class="panel form-card request-form" method="post" action="{{ url_for('post_query') }}" enctype="multipart/form-data" data-location-form data-upload-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="query_id" value="{{ query_id }}">
     <p class="eyebrow">New request · Local discovery</p>
     <h1>Tell us what you need</h1>
     <p class="form-intro">A clear description helps nearby providers respond with the right option.</p>
@@ -25,7 +26,26 @@
       <div class="request-location full">
         <label for="location">Area or landmark<input id="location" name="location" placeholder="Your area, landmark or location" required></label>
         <button class="btn location-button" id="useCurrentLocation" type="button">&#128205; Use my current location</button>
-        <div class="location-status" id="locationStatus" role="status" aria-live="polite">Waiting for location...</div>
+        <div class="location-status" id="locationStatus" role="status" aria-live="polite">
+          {% if session.get('lat') is not none and session.get('lng') is not none %}
+            Saved location loaded ({{ session.get('lat')|round(4) }}, {{ session.get('lng')|round(4) }}). Click "Use my current location" to refresh.
+          {% else %}
+            Click "Use my current location" or enter your coordinates below to discover nearby providers.
+          {% endif %}
+        </div>
+      </div>
+      <div class="location-manual-wrap full" style="padding: 14px 16px; background: rgba(0, 0, 0, 0.22); border: 1px solid var(--line-subtle); border-radius: 10px;">
+        <p class="field-hint" style="margin: 0 0 10px; color: var(--muted); font-size: 13px;">
+          Coordinates are required for nearby discovery. Browser geolocation requires HTTPS or localhost and user permission. You can also enter coordinates manually below.
+        </p>
+        <div class="grid two" style="gap: 12px;">
+          <label for="latitude">Latitude (-90 to 90)
+            <input id="latitude" name="lat" type="number" step="any" min="-90" max="90" inputmode="decimal" value="{{ session.get('lat') or '' }}" placeholder="e.g. 26.7606" required>
+          </label>
+          <label for="longitude">Longitude (-180 to 180)
+            <input id="longitude" name="lng" type="number" step="any" min="-180" max="180" inputmode="decimal" value="{{ session.get('lng') or '' }}" placeholder="e.g. 83.3732" required>
+          </label>
+        </div>
       </div>
       <label for="radius">Search radius
         <select id="radius" name="radius_km">
@@ -51,8 +71,6 @@
           <option value="24">24 hours</option>
         </select>
       </label>
-      <input id="latitude" name="lat" type="hidden">
-      <input id="longitude" name="lng" type="hidden">
     </div>
     <label class="upload-zone">
       <input name="image" type="file" accept="image/jpeg,image/png,image/webp">
