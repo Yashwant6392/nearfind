@@ -1,47 +1,60 @@
 {% extends "base.html" %}
 {% block content %}
 {% if session.get('lat') is none or session.get('lng') is none %}
-<div class="panel location-banner" id="seekerLocationBanner" style="display: flex; justify-content: space-between; align-items: center; background: rgba(197, 243, 107, 0.08); border: 1px solid var(--lime-border); border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; gap: 16px; flex-wrap: wrap;">
+<div class="panel location-banner" id="seekerLocationBanner"
+  style="display: flex; justify-content: space-between; align-items: center; background: rgba(197, 243, 107, 0.08); border: 1px solid var(--lime-border); border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; gap: 16px; flex-wrap: wrap;">
   <div style="display: flex; align-items: center; gap: 14px;">
     <span style="font-size: 26px;">📍</span>
     <div>
       <strong style="color: #FFFFFF; font-size: 15px;">Add your location for nearby discovery</strong>
-      <p class="muted" style="margin: 2px 0 0; font-size: 13px;">Set your location coordinates to discover nearby shops, calculate real distances, and post requests.</p>
+      <p class="muted" style="margin: 2px 0 0; font-size: 13px;">Set your location coordinates to discover nearby shops,
+        calculate real distances, and post requests.</p>
     </div>
   </div>
   <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
     <span id="seekerLocationStatus" class="muted" style="font-size: 13px;"></span>
-    <button type="button" id="seekerUpdateLocationBtn" class="btn small primary" style="white-space: nowrap;">Use My Current Location</button>
-    <button type="button" id="seekerManualToggleBtn" class="btn small ghost" style="white-space: nowrap;">Enter Coordinates</button>
+    <button type="button" id="seekerUpdateLocationBtn" class="btn small primary" style="white-space: nowrap;">Use My
+      Current Location</button>
+    <button type="button" id="seekerManualToggleBtn" class="btn small ghost" style="white-space: nowrap;">Enter
+      Coordinates</button>
   </div>
 </div>
 {% else %}
-<div class="panel location-banner" id="seekerLocationBanner" style="display: flex; justify-content: space-between; align-items: center; background: rgba(197, 243, 107, 0.06); border: 1px solid var(--line-subtle); border-radius: 12px; padding: 12px 20px; margin-bottom: 24px; gap: 14px; flex-wrap: wrap;">
+<div class="panel location-banner" id="seekerLocationBanner"
+  style="display: flex; justify-content: space-between; align-items: center; background: rgba(197, 243, 107, 0.06); border: 1px solid var(--line-subtle); border-radius: 12px; padding: 12px 20px; margin-bottom: 24px; gap: 14px; flex-wrap: wrap;">
   <div style="display: flex; align-items: center; gap: 12px;">
     <span style="font-size: 20px;">📍</span>
     <div>
-      <span style="color: var(--text-main); font-size: 13.5px; font-weight: 600;">Saved Coordinates: <strong style="color: var(--lime);">{{ session.get('lat')|round(4) }}, {{ session.get('lng')|round(4) }}</strong></span>
+      <span style="color: var(--text-main); font-size: 13.5px; font-weight: 600;">Saved Coordinates: <strong
+          style="color: var(--lime);">{{ session.get('lat')|round(4) }}, {{ session.get('lng')|round(4)
+          }}</strong></span>
       <span id="seekerLocationStatus" class="muted" style="font-size: 12.5px; margin-left: 8px;"></span>
     </div>
   </div>
   <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-    <button type="button" id="seekerUpdateLocationBtn" class="btn small ghost" style="white-space: nowrap;">Refresh Location</button>
-    <button type="button" id="seekerManualToggleBtn" class="btn small" style="white-space: nowrap;">Change Coordinates</button>
+    <button type="button" id="seekerUpdateLocationBtn" class="btn small ghost" style="white-space: nowrap;">Refresh
+      Location</button>
+    <button type="button" id="seekerManualToggleBtn" class="btn small" style="white-space: nowrap;">Change
+      Coordinates</button>
   </div>
 </div>
 {% endif %}
 
 <!-- Collapsible Manual Location Form -->
-<div id="seekerManualLocationCard" style="display: none; padding: 16px 20px; background: #0E2E29; border: 1px solid var(--lime-border); border-radius: 12px; margin-bottom: 24px; box-shadow: var(--shadow);">
+<div id="seekerManualLocationCard"
+  style="display: none; padding: 16px 20px; background: #0E2E29; border: 1px solid var(--lime-border); border-radius: 12px; margin-bottom: 24px; box-shadow: var(--shadow);">
   <p class="field-hint" style="margin: 0 0 12px; color: var(--body); font-size: 13.5px;">
-    Browser geolocation usually requires localhost or HTTPS and user permission. You can enter or update your coordinates manually:
+    Browser geolocation usually requires localhost or HTTPS and user permission. You can enter or update your
+    coordinates manually:
   </p>
   <div class="grid two" style="gap: 14px;">
     <label>Latitude (-90 to 90)
-      <input type="number" step="any" min="-90" max="90" id="manualSeekerLat" placeholder="e.g. 26.7606" value="{{ session.get('lat') or '' }}">
+      <input type="number" step="any" min="-90" max="90" id="manualSeekerLat" placeholder="e.g. 26.7606"
+        value="{{ session.get('lat') or '' }}">
     </label>
     <label>Longitude (-180 to 180)
-      <input type="number" step="any" min="-180" max="180" id="manualSeekerLng" placeholder="e.g. 83.3732" value="{{ session.get('lng') or '' }}">
+      <input type="number" step="any" min="-180" max="180" id="manualSeekerLng" placeholder="e.g. 83.3732"
+        value="{{ session.get('lng') or '' }}">
     </label>
   </div>
   <div style="display: flex; gap: 10px; margin-top: 14px;">
@@ -71,64 +84,73 @@
           <span class="eyebrow" style="color: var(--gold);">&#127973; Emergency Bed Reservation</span>
           <h2 style="margin: 4px 0 0; font-size: 20px;">Hospital Bed Hold</h2>
         </div>
-        <span class="sync-indicator" id="bedSyncIndicator" title="Live status synchronized" aria-label="Status live">&#9679; Live</span>
+        <span class="sync-indicator" id="bedSyncIndicator" title="Live status synchronized"
+          aria-label="Status live">&#9679; Live</span>
       </div>
       <div id="bedReservationContent">
         {% if bed_reservations and bed_reservations.active_hold %}
-          {% set hold = bed_reservations.active_hold %}
-          <div class="active-reservation-content">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-              <h3 style="margin: 0; font-size: 18px;">{{ hold.hospital_name }}</h3>
-              <span class="status-chip available">Active Hold</span>
-            </div>
-            <p style="margin: 6px 0 4px; font-weight: 600;">
-              Reserved Bed: <strong style="color: var(--gold);">{{ hold.bed_type_label }} Bed</strong>
-            </p>
-            {% if hold.hospital_address %}
-              <p class="muted" style="margin: 0 0 6px; font-size: 13px;">{{ hold.hospital_address }}</p>
-            {% endif %}
-            {% if hold.expires_at %}
-              <p class="notice" style="margin: 6px 0 12px; font-size: 13px;">
-                &#9200; Held until {{ hold.expires_at }}
-              </p>
-            {% endif %}
-            <div class="actions" style="margin-top: 12px; gap: 8px;">
-              {% if hold.hospital_phone %}
-                <a class="btn small primary" href="tel:{{ hold.hospital_phone }}">&#128222; Call ({{ hold.hospital_phone }})</a>
-              {% endif %}
-              {% if hold.hospital_lat is not none and hold.hospital_lng is not none %}
-                <a class="btn small" href="https://www.google.com/maps/dir/?api=1&destination={{ hold.hospital_lat }},{{ hold.hospital_lng }}" target="_blank" rel="noopener noreferrer">&#128205; Directions</a>
-              {% endif %}
-              <form method="post" action="{{ url_for('cancel_hospital_bed_hold', hold_id=hold.id) }}" style="display: inline;" class="cancel-hold-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="btn ghost small" type="submit" onclick="return confirm('Cancel this emergency bed hold?');">Cancel Hold</button>
-              </form>
-            </div>
+        {% set hold = bed_reservations.active_hold %}
+        <div class="active-reservation-content">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+            <h3 style="margin: 0; font-size: 18px;">{{ hold.hospital_name }}</h3>
+            <span class="status-chip available">Active Hold</span>
           </div>
+          <p style="margin: 6px 0 4px; font-weight: 600;">
+            Reserved Bed: <strong style="color: var(--gold);">{{ hold.bed_type_label }} Bed</strong>
+          </p>
+          {% if hold.hospital_address %}
+          <p class="muted" style="margin: 0 0 6px; font-size: 13px;">{{ hold.hospital_address }}</p>
+          {% endif %}
+          {% if hold.expires_at %}
+          <p class="notice" style="margin: 6px 0 12px; font-size: 13px;">
+            &#9200; Held until {{ hold.expires_at }}
+          </p>
+          {% endif %}
+          <div class="actions" style="margin-top: 12px; gap: 8px;">
+            {% if hold.hospital_phone %}
+            <a class="btn small primary" href="tel:{{ hold.hospital_phone }}">&#128222; Call ({{ hold.hospital_phone
+              }})</a>
+            {% endif %}
+            {% if hold.hospital_lat is not none and hold.hospital_lng is not none %}
+            <a class="btn small"
+              href="https://www.google.com/maps/dir/?api=1&destination={{ hold.hospital_lat }},{{ hold.hospital_lng }}"
+              target="_blank" rel="noopener noreferrer">&#128205; Directions</a>
+            {% endif %}
+            <form method="post" action="{{ url_for('cancel_hospital_bed_hold', hold_id=hold.id) }}"
+              style="display: inline;" class="cancel-hold-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn ghost small" type="submit"
+                onclick="return confirm('Cancel this emergency bed hold?');">Cancel Hold</button>
+            </form>
+          </div>
+        </div>
         {% elif bed_reservations and bed_reservations.recent_holds and bed_reservations.recent_holds|length > 0 %}
-          {% set hold = bed_reservations.recent_holds[0] %}
-          <div class="recent-reservation-content">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-              <h3 style="margin: 0; font-size: 18px;">{{ hold.hospital_name }}</h3>
-              <span class="status-chip {{ 'matched' if hold.effective_status == 'admitted' else ('expired' if hold.effective_status == 'expired' else 'selected') }}">{{ hold.effective_status|title }}</span>
-            </div>
-            <p style="margin: 6px 0 4px;">{{ hold.bed_type_label }} Bed</p>
-            {% if hold.effective_status == 'admitted' %}
-              <p class="notice" style="color: var(--green); font-size: 13px;">&#10003; Hospital admission confirmed. Patient admitted.</p>
-            {% elif hold.effective_status == 'cancelled' %}
-              <p class="muted" style="font-size: 13px;">Hold was cancelled and capacity restored.</p>
-            {% elif hold.effective_status == 'expired' %}
-              <p class="muted" style="font-size: 13px;">Hold duration elapsed.</p>
-            {% endif %}
-            <div style="margin-top: 12px;">
-              <a class="btn small" href="{{ url_for('emergency_bed_page') }}">Find emergency bed</a>
-            </div>
+        {% set hold = bed_reservations.recent_holds[0] %}
+        <div class="recent-reservation-content">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+            <h3 style="margin: 0; font-size: 18px;">{{ hold.hospital_name }}</h3>
+            <span
+              class="status-chip {{ 'matched' if hold.effective_status == 'admitted' else ('expired' if hold.effective_status == 'expired' else 'selected') }}">{{
+              hold.effective_status|title }}</span>
           </div>
-        {% else %}
-          <div class="empty-reservation">
-            <p class="muted" style="margin: 0 0 10px;">No active emergency bed reservations.</p>
+          <p style="margin: 6px 0 4px;">{{ hold.bed_type_label }} Bed</p>
+          {% if hold.effective_status == 'admitted' %}
+          <p class="notice" style="color: var(--green); font-size: 13px;">&#10003; Hospital admission confirmed. Patient
+            admitted.</p>
+          {% elif hold.effective_status == 'cancelled' %}
+          <p class="muted" style="font-size: 13px;">Hold was cancelled and capacity restored.</p>
+          {% elif hold.effective_status == 'expired' %}
+          <p class="muted" style="font-size: 13px;">Hold duration elapsed.</p>
+          {% endif %}
+          <div style="margin-top: 12px;">
             <a class="btn small" href="{{ url_for('emergency_bed_page') }}">Find emergency bed</a>
           </div>
+        </div>
+        {% else %}
+        <div class="empty-reservation">
+          <p class="muted" style="margin: 0 0 10px;">No active emergency bed reservations.</p>
+          <a class="btn small" href="{{ url_for('emergency_bed_page') }}">Find emergency bed</a>
+        </div>
         {% endif %}
       </div>
     </article>
@@ -140,67 +162,79 @@
           <span class="eyebrow" style="color: var(--gold);">&#128663; Driver Trip Booking</span>
           <h2 style="margin: 4px 0 0; font-size: 20px;">Trip For Your Car</h2>
         </div>
-        <span class="sync-indicator" id="driverSyncIndicator" title="Live status synchronized" aria-label="Status live">&#9679; Live</span>
+        <span class="sync-indicator" id="driverSyncIndicator" title="Live status synchronized"
+          aria-label="Status live">&#9679; Live</span>
       </div>
       <div id="driverTripContent">
         {% if driver_trips and driver_trips.active_trip %}
-          {% set trip = driver_trips.active_trip %}
-          <div class="active-trip-content">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-              <div>
-                <strong style="font-size: 15px;">{{ trip.pickup_address }} &rarr; {{ trip.destination_address }}</strong>
-                <p class="muted" style="margin: 2px 0 0; font-size: 13px;">{{ trip.requested_start }} &middot; {{ trip.duration_minutes }} mins</p>
-              </div>
-              <span class="status-chip {{ 'open' if trip.status == 'open' else ('available' if trip.status in ['in_progress', 'completed'] else 'selected') }}">{{ trip.status_label }}</span>
+        {% set trip = driver_trips.active_trip %}
+        <div class="active-trip-content">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+            <div>
+              <strong style="font-size: 15px;">{{ trip.pickup_address }} &rarr; {{ trip.destination_address }}</strong>
+              <p class="muted" style="margin: 2px 0 0; font-size: 13px;">{{ trip.requested_start }} &middot; {{
+                trip.duration_minutes }} mins</p>
             </div>
-            {% if trip.driver %}
-              <div class="driver-info-box" style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
-                <p style="margin: 0; font-weight: 700;">&#128100; {{ trip.driver.name }}</p>
-                {% if trip.driver.experience_years or trip.driver.licence_category %}
-                  <p class="muted" style="margin: 2px 0 0; font-size: 12px;">{{ trip.driver.experience_years }} yrs exp &middot; {{ trip.driver.licence_category }}</p>
-                {% endif %}
-              </div>
-            {% elif trip.status == 'open' %}
-              <p class="notice" style="margin: 10px 0 4px; font-size: 13px;">Matching available drivers within request radius...</p>
-            {% endif %}
-            <div class="actions" style="margin-top: 12px; gap: 8px;">
-              {% if trip.driver and trip.driver.phone %}
-                <a class="btn small primary" href="tel:{{ trip.driver.phone }}">&#128222; Call Driver</a>
-              {% endif %}
-              <a class="btn small" href="{{ url_for('seeker_driver_request', request_id=trip.request_id) }}">View Request</a>
-              {% if trip.can_cancel and trip.booking_id %}
-                <form method="post" action="{{ url_for('seeker_cancel_driver_booking', booking_id=trip.booking_id) }}" style="display: inline;" class="cancel-booking-form">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn ghost small" type="submit" onclick="return confirm('Cancel this driver booking?');">Cancel Booking</button>
-                </form>
-              {% endif %}
-            </div>
+            <span
+              class="status-chip {{ 'open' if trip.status == 'open' else ('available' if trip.status in ['in_progress', 'completed'] else 'selected') }}">{{
+              trip.status_label }}</span>
           </div>
+          {% if trip.driver %}
+          <div class="driver-info-box"
+            style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+            <p style="margin: 0; font-weight: 700;">&#128100; {{ trip.driver.name }}</p>
+            {% if trip.driver.experience_years or trip.driver.licence_category %}
+            <p class="muted" style="margin: 2px 0 0; font-size: 12px;">{{ trip.driver.experience_years }} yrs exp
+              &middot; {{ trip.driver.licence_category }}</p>
+            {% endif %}
+          </div>
+          {% elif trip.status == 'open' %}
+          <p class="notice" style="margin: 10px 0 4px; font-size: 13px;">Matching available drivers within request
+            radius...</p>
+          {% endif %}
+          <div class="actions" style="margin-top: 12px; gap: 8px;">
+            {% if trip.driver and trip.driver.phone %}
+            <a class="btn small primary" href="tel:{{ trip.driver.phone }}">&#128222; Call Driver</a>
+            {% endif %}
+            <a class="btn small" href="{{ url_for('seeker_driver_request', request_id=trip.request_id) }}">View
+              Request</a>
+            {% if trip.can_cancel and trip.booking_id %}
+            <form method="post" action="{{ url_for('seeker_cancel_driver_booking', booking_id=trip.booking_id) }}"
+              style="display: inline;" class="cancel-booking-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn ghost small" type="submit"
+                onclick="return confirm('Cancel this driver booking?');">Cancel Booking</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
         {% elif driver_trips and driver_trips.recent_trips and driver_trips.recent_trips|length > 0 %}
-          {% set trip = driver_trips.recent_trips[0] %}
-          <div class="recent-trip-content">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-              <div>
-                <strong style="font-size: 14px;">{{ trip.pickup_address }} &rarr; {{ trip.destination_address }}</strong>
-                <p class="muted" style="margin: 2px 0 0; font-size: 13px;">{{ trip.requested_start }}</p>
-              </div>
-              <span class="status-chip {{ 'matched' if trip.status == 'completed' else 'expired' }}">{{ trip.status_label }}</span>
+        {% set trip = driver_trips.recent_trips[0] %}
+        <div class="recent-trip-content">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+            <div>
+              <strong style="font-size: 14px;">{{ trip.pickup_address }} &rarr; {{ trip.destination_address }}</strong>
+              <p class="muted" style="margin: 2px 0 0; font-size: 13px;">{{ trip.requested_start }}</p>
             </div>
-            {% if trip.status == 'completed' %}
-              <p class="notice" style="color: var(--green); margin-top: 8px; font-size: 13px;">&#10003; Trip completed.</p>
-            {% else %}
-              <p class="muted" style="margin-top: 8px; font-size: 13px;">Trip {{ trip.status_label|lower }}.</p>
-            {% endif %}
-            <div style="margin-top: 12px; display: flex; gap: 8px;">
-              <a class="btn small" href="{{ url_for('seeker_driver_request', request_id=trip.request_id) }}">View Details</a>
-              <a class="btn small" href="{{ url_for('seeker_driver_request') }}">Request a driver</a>
-            </div>
+            <span class="status-chip {{ 'matched' if trip.status == 'completed' else 'expired' }}">{{ trip.status_label
+              }}</span>
           </div>
+          {% if trip.status == 'completed' %}
+          <p class="notice" style="color: var(--green); margin-top: 8px; font-size: 13px;">&#10003; Trip completed.</p>
+          {% else %}
+          <p class="muted" style="margin-top: 8px; font-size: 13px;">Trip {{ trip.status_label|lower }}.</p>
+          {% endif %}
+          <div style="margin-top: 12px; display: flex; gap: 8px;">
+            <a class="btn small" href="{{ url_for('seeker_driver_request', request_id=trip.request_id) }}">View
+              Details</a>
+            <a class="btn small" href="{{ url_for('seeker_driver_request') }}">Request a driver</a>
+          </div>
+        </div>
         {% else %}
-          <div class="empty-reservation">
-            <p class="muted" style="margin: 0 0 10px;">No driver trips or requests yet.</p>
-            <a class="btn small" href="{{ url_for('seeker_driver_request') }}">Request a driver for my car</a>
-          </div>
+        <div class="empty-reservation">
+          <p class="muted" style="margin: 0 0 10px;">No driver trips or requests yet.</p>
+          <a class="btn small" href="{{ url_for('seeker_driver_request') }}">Request a driver for my car</a>
+        </div>
         {% endif %}
       </div>
     </article>
@@ -214,41 +248,47 @@
     <p class="muted">Choose a category to start with a focused request.</p>
   </div>
   <div class="category-grid" aria-label="Popular categories">
-    {% for category in ["Vehicle / Transport", "Repair & Maintenance", "Home Services", "Electrical", "Plumbing", "Electronics", "Computer / IT", "Delivery / Pickup"] %}
-      <a class="category-card" href="{{ url_for('post_query_page') }}?category={{ category|urlencode }}"><span class="category-icon">{{ loop.index }}</span><span>{{ category }}</span></a>
+    {% for category in ["Vehicle / Transport", "Repair & Maintenance", "Home Services", "Electrical", "Plumbing",
+    "Electronics", "Computer / IT", "Delivery / Pickup","Medicine"] %}
+    <a class="category-card" href="{{ url_for('post_query_page') }}?category={{ category|urlencode }}"><span
+        class="category-icon">{{ loop.index }}</span><span>{{ category }}</span></a>
     {% endfor %}
   </div>
 </section>
 
-{% for status, title in [("open", "Active Requests"), ("matched", "Matched"), ("resolved", "Completed"), ("expired", "Expired")] %}
+{% for status, title in [("open", "Active Requests"), ("matched", "Matched"), ("resolved", "Completed"), ("expired",
+"Expired")] %}
 <section class="section-block">
-  <div class="section-heading"><h2>{{ title }}</h2>{% if buckets.get(status) %}<span class="count-label">{{ buckets[status]|length }}</span>{% endif %}</div>
+  <div class="section-heading">
+    <h2>{{ title }}</h2>{% if buckets.get(status) %}<span class="count-label">{{ buckets[status]|length }}</span>{%
+    endif %}
+  </div>
   {% if buckets.get(status) %}
-    <div class="card-grid">
-      {% for query in buckets[status] %}
-      <article class="product-card">
-        <div class="product-card-media">
-          {% if query.image_url %}
-            <img src="{{ query.image_url }}" alt="Reference image for {{ query.item_name }}">
-          {% else %}
-            <div class="product-card-placeholder"><span>No reference image</span></div>
-          {% endif %}
+  <div class="card-grid">
+    {% for query in buckets[status] %}
+    <article class="product-card">
+      <div class="product-card-media">
+        {% if query.image_url %}
+        <img src="{{ query.image_url }}" alt="Reference image for {{ query.item_name }}">
+        {% else %}
+        <div class="product-card-placeholder"><span>No reference image</span></div>
+        {% endif %}
+      </div>
+      <div class="product-card-content">
+        <div class="product-card-header">
+          <span class="status-chip {{ query.status }}">{{ query.status }}</span>
+          <span class="product-card-urgency">{{ query.urgency|replace("_", " ") }}</span>
         </div>
-        <div class="product-card-content">
-          <div class="product-card-header">
-            <span class="status-chip {{ query.status }}">{{ query.status }}</span>
-            <span class="product-card-urgency">{{ query.urgency|replace("_", " ") }}</span>
-          </div>
-          <h3>{{ query.item_name }}</h3>
-          <p class="product-card-category">{{ query.category }}</p>
-          <p class="muted product-card-providers">{{ counts.get(query.id, 0) }} providers found</p>
-          <a class="btn small" href="{{ url_for('seeker_responses_page', query_id=query.id) }}">View request</a>
-        </div>
-      </article>
-      {% endfor %}
-    </div>
+        <h3>{{ query.item_name }}</h3>
+        <p class="product-card-category">{{ query.category }}</p>
+        <p class="muted product-card-providers">{{ counts.get(query.id, 0) }} providers found</p>
+        <a class="btn small" href="{{ url_for('seeker_responses_page', query_id=query.id) }}">View request</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
   {% else %}
-    <div class="empty">No {{ title|lower }} yet.</div>
+  <div class="empty">No {{ title|lower }} yet.</div>
   {% endif %}
 </section>
 {% endfor %}
