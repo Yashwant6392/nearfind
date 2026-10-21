@@ -24,19 +24,20 @@
       <label class="full">Address
         <input name="address" placeholder="Street, locality, area" required>
       </label>
+      {% set init_role = request.args.get('role', 'seeker') %}
       <label>Account Role
         <select name="role" id="roleSelect" required>
-          <option value="seeker">Seeker (Search & Request)</option>
-          <option value="provider">Provider (Sell & Offer)</option>
+          <option value="seeker" {% if init_role != 'provider' %}selected{% endif %}>Seeker (Search & Request)</option>
+          <option value="provider" {% if init_role == 'provider' %}selected{% endif %}>Provider (Sell & Offer)</option>
         </select>
       </label>
-      <label id="providerTypeWrap">Provider type
+      <label id="providerTypeWrap" {% if init_role != 'provider' %}style="display: none;"{% endif %}>Provider type
         <select name="provider_type">
           <option value="shop">Shop / Store</option>
           <option value="individual">Individual Provider</option>
         </select>
       </label>
-      <label id="businessWrap" class="full">Business Name
+      <label id="businessWrap" class="full" {% if init_role != 'provider' %}style="display: none;"{% endif %}>Business Name
         <input name="business_name" placeholder="Store or business display name">
       </label>
     </div>

@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
-<body{% if session.get("user_id") %} data-logged-in="true"{% endif %}>
+<body{% if session.get("user_id") %} data-logged-in="true"{% endif %}{% if session.get("role") %} data-role="{{ session.get('role') }}"{% endif %}>
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}" aria-label="NearFind Home">
       <svg class="brand-logo" width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -38,7 +38,7 @@
           <a href="{{ url_for('seeker_driver_request') }}">Request a driver</a>
           <a href="{{ url_for('emergency_bed_page') }}">Emergency bed</a>
           <a class="nav-cta" href="{{ url_for('post_query_page') }}">Find help</a>
-        {% else %}
+        {% elif session.get("role") == "provider" %}
           <a href="{{ url_for('provider_dashboard') }}">Nearby requests</a>
           <a href="{{ url_for('provider_driver_requests') }}">Driver tasks & requests</a>
           <a href="{{ url_for('provider_driver_availability') }}">Driver availability</a>

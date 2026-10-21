@@ -85,6 +85,15 @@ def supabase_auth_request(auth, method, credentials):
             _transport_diagnostic(error),
             tuple(type(item).__name__ for item in _exception_chain(error)),
         ) from None
+    except (SupabaseConnectionError, SupabaseRequestError):
+        raise
+    except Exception as error:
+        status = getattr(error, "status", None) or getattr(error, "status_code", None)
+        if status is not None:
+            code = getattr(error, "code", None)
+            message = getattr(error, "message", None) or str(error)
+            raise SupabaseRequestError(status, message, code=code) from error
+        raise
 
 
 def _raise_for_supabase(response):

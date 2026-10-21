@@ -67,12 +67,13 @@
     let knownNotificationIds;
 
     const notificationTarget = (notification) => {
+      const userRole = document.body ? document.body.dataset.role : "";
       if (notification.type === "provider_response") return `/seeker/responses/${notification.query_id}`;
       if (notification.type === "new_request") return "/provider/dashboard";
       if (["chat_message", "provider_selected", "request_resolved"].includes(notification.type) && notification.response_id) {
         return `/chat/response/${notification.response_id}`;
       }
-      return "/provider/dashboard";
+      return userRole === "provider" ? "/provider/dashboard" : "/seeker/dashboard";
     };
 
     const updateDesktopButton = () => {

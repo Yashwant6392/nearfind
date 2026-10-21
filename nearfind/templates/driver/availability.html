@@ -38,7 +38,7 @@
       <input id="sharingEnabled" name="sharing_enabled" type="checkbox" {% if location.sharing_enabled %}checked{% endif %}>
       <span>Share my current location to appear in nearby driver discovery</span>
     </label>
-    <p class="muted">Current saved sharing setting: <strong id="sharingSettingLabel" style="color: {{ 'var(--lime)' if location.sharing_enabled else 'var(--muted)' }};">{{ "On" if location.sharing_enabled else "Off" }}</strong>{% if location.updated_at %} · Updated {{ location.updated_at }}{% endif %}</p>
+    <p class="muted">Current saved sharing setting: <strong id="sharingSettingLabel" {% if location.sharing_enabled %}style="color: var(--lime);"{% else %}style="color: var(--muted);"{% endif %}>{{ "On" if location.sharing_enabled else "Off" }}</strong>{% if location.updated_at %} · Updated {{ location.updated_at }}{% endif %}</p>
     <label for="driverLatitude">Current latitude
       <input id="driverLatitude" name="lat" type="number" min="-90" max="90" step="any" value="{{ location.lat if location.lat is not none else '' }}" inputmode="decimal">
     </label>

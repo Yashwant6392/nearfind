@@ -170,8 +170,9 @@ def safe_supabase_message(error):
 
 
 def safe_signup_supabase_error(error):
-    code = str(error.code or "").casefold()
-    detail = str(error.message or "").casefold()
+    code = str(getattr(error, "code", None) or "").casefold()
+    detail = str(getattr(error, "message", None) or "").casefold()
+    status_code = getattr(error, "status_code", 400)
     disabled_codes = {"signup_disabled", "signups_disabled", "signup_not_enabled", "signup_not_allowed"}
     disabled_phrases = (
         "sign-ups are currently paused",
@@ -188,7 +189,12 @@ def safe_signup_supabase_error(error):
             "Sign-ups are currently disabled for this Supabase project. Contact the project administrator to enable them in Auth settings.",
             "signup_disabled",
         )
-    if error.status_code == 429:
+    if (
+        status_code == 429
+        or code in {"over_request_rate_limit", "over_email_send_rate_limit"}
+        or "rate limit" in detail
+        or "too many requests" in detail
+    ):
         return 429, "Sign-up rate limit reached. Please wait and try again later.", "rate_limited"
     if code in {"invalid_api_key", "bad_jwt"} or "invalid api key" in detail:
         return (
@@ -213,15 +219,61 @@ def safe_signup_supabase_error(error):
             "Password does not meet the security requirements. It must be at least 6 characters.",
             "invalid_password",
         )
-    if error.status_code in {400, 401, 403, 422}:
+    if status_code in {400, 401, 403, 422}:
         return (
-            error.status_code,
+            status_code,
             "Supabase Auth rejected this sign-up request. Check the form requirements and ask the project administrator to verify sign-up settings and the public API key.",
             "signup_rejected",
         )
     return (
         502,
         "Supabase Auth could not complete sign-up. Please try again later or contact the project administrator.",
+        "supabase_auth_error",
+    )
+
+
+def safe_login_supabase_error(error):
+    code = str(getattr(error, "code", None) or "").casefold()
+    detail = str(getattr(error, "message", None) or "").casefold()
+    status_code = getattr(error, "status_code", 400)
+    if (
+        status_code == 429
+        or code in {"over_request_rate_limit", "over_email_send_rate_limit"}
+        or "rate limit" in detail
+        or "too many requests" in detail
+    ):
+        return 429, "Too many login attempts. Please wait and try again later.", "rate_limited"
+    if (
+        code in {"email_not_confirmed", "email_provider_disabled"}
+        or "email not confirmed" in detail
+        or "confirm your email" in detail
+        or "unconfirmed" in detail
+    ):
+        return (
+            403,
+            "Please verify your email address before signing in. Check your inbox for the confirmation link.",
+            "email_not_confirmed",
+        )
+    if code in {"user_banned", "user_inactive", "account_disabled"} or "banned" in detail or "disabled" in detail:
+        return 403, "Your account is inactive or disabled. Please contact support.", "account_disabled"
+    if code in {"invalid_api_key", "bad_jwt"} or "invalid api key" in detail:
+        return (
+            503,
+            "Supabase Auth rejected the configured public API key. The project administrator should verify SUPABASE_URL and SUPABASE_ANON_KEY.",
+            "supabase_configuration_error",
+        )
+    if (
+        status_code in {400, 401}
+        or code in {"invalid_credentials", "invalid_grant", "bad_credentials"}
+        or "invalid login credentials" in detail
+        or "invalid credentials" in detail
+    ):
+        return 400, "Invalid email or password.", "invalid_credentials"
+    if 400 <= status_code < 500:
+        return status_code, "Invalid email or password.", "invalid_credentials"
+    return (
+        502,
+        "Unable to sign in right now. Please try again.",
         "supabase_auth_error",
     )
 
@@ -883,23 +935,29 @@ def auth_signup():
     if (lat is None) != (lng is None):
         raise ValueError("Both latitude and longitude are required if coordinates are provided")
 
-    try:
-        auth_result = supabase_auth_request(
-            get_supabase(admin=False).auth,
-            "sign_up",
-            {"email": email, "password": password},
-        )
-    except SupabaseRequestError as error:
-        status, message, error_code = safe_signup_supabase_error(error)
-        app.logger.warning("Supabase signup rejected with HTTP status=%s", error.status_code)
-        return render_request_error(
-            status,
-            message,
-            log_message=f"Supabase signup rejected status={error.status_code}",
-            error_code=error_code,
-            log_stack=False,
-        )
-    user = auth_result.user
+    session_user_id = session.get("user_id")
+    session_email = (session.get("email") or "").lower()
+    user = None
+    if session_user_id and session_email == email:
+        user = SimpleNamespace(id=session_user_id, email=email)
+    else:
+        try:
+            auth_result = supabase_auth_request(
+                get_supabase(admin=False).auth,
+                "sign_up",
+                {"email": email, "password": password},
+            )
+            user = auth_result.user
+        except SupabaseRequestError as error:
+            status, message, error_code = safe_signup_supabase_error(error)
+            app.logger.warning("Supabase signup rejected with HTTP status=%s error_code=%s", error.status_code, error_code)
+            return render_request_error(
+                status,
+                message,
+                log_message=f"Supabase signup rejected status={error.status_code}",
+                error_code=error_code,
+                log_stack=False,
+            )
     if not user:
         raise RuntimeError("Supabase did not create the user")
     profile = {
@@ -1091,12 +1149,13 @@ def auth_login():
     except SupabaseConnectionError:
         raise
     except SupabaseRequestError as error:
-        app.logger.warning("Supabase login rejected for %s status=%s code=%s", email, error.status_code, error.code)
+        status, message, error_code = safe_login_supabase_error(error)
+        app.logger.warning("Supabase login rejected for %s status=%s code=%s error_code=%s", email, error.status_code, error.code, error_code)
         return render_request_error(
-            400,
-            "Invalid email or password.",
-            log_message="Invalid credentials",
-            error_code="invalid_credentials",
+            status,
+            message,
+            log_message=f"Supabase login failed ({error_code})",
+            error_code=error_code,
             log_stack=False,
         )
     except Exception as error:
@@ -1135,7 +1194,7 @@ def auth_login():
         # profile yet; redirect to account setup.
         session.clear()
         session.permanent = True
-        session.update(user_id=user.id, email=email, role="seeker", is_hospital_manager=False)
+        session.update(user_id=user.id, email=email, role="seeker", is_hospital_manager=False, pending_profile=True)
         return redirect(url_for("signup"))
 
     if not profile.get("is_active", True):

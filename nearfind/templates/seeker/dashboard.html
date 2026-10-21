@@ -1,70 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
-{% if session.get('lat') is none or session.get('lng') is none %}
-<div class="panel location-banner" id="seekerLocationBanner"
-  style="display: flex; justify-content: space-between; align-items: center; background: rgba(197, 243, 107, 0.08); border: 1px solid var(--lime-border); border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; gap: 16px; flex-wrap: wrap;">
-  <div style="display: flex; align-items: center; gap: 14px;">
-    <span style="font-size: 26px;">📍</span>
-    <div>
-      <strong style="color: #FFFFFF; font-size: 15px;">Add your location for nearby discovery</strong>
-      <p class="muted" style="margin: 2px 0 0; font-size: 13px;">Set your location coordinates to discover nearby shops,
-        calculate real distances, and post requests.</p>
+<section class="dashboard-head seeker-dashboard-head">
+  <div class="seeker-head-left">
+    <div class="seeker-head-eyebrow-row">
+      <p class="eyebrow" style="margin: 0;">Your local request desk</p>
+      <!-- Compact location status indicator -->
+      <div class="seeker-location-indicator" id="seekerLocationBanner" role="region" aria-label="Saved location coordinates">
+        {% if session.get('lat') is none or session.get('lng') is none %}
+          <div class="loc-chip unset">
+            <span class="loc-chip-dot pulse" aria-hidden="true"></span>
+            <span class="loc-chip-icon" aria-hidden="true">📍</span>
+            <span class="loc-chip-title">Location unset</span>
+            <div class="loc-chip-actions">
+              <button type="button" id="seekerUpdateLocationBtn" class="loc-chip-btn primary" title="Detect browser location">Detect</button>
+              <button type="button" id="seekerManualToggleBtn" class="loc-chip-btn ghost" title="Enter coordinates manually">Enter</button>
+            </div>
+          </div>
+        {% else %}
+          <div class="loc-chip set">
+            <span class="loc-chip-dot live" aria-hidden="true"></span>
+            <span class="loc-chip-icon" aria-hidden="true">📍</span>
+            <div class="loc-chip-body">
+              <span class="loc-chip-title">Location saved</span>
+              <span class="loc-chip-coords" title="{{ session.get('lat') }}, {{ session.get('lng') }}">
+                {{ session.get('lat')|round(4) }}, {{ session.get('lng')|round(4) }}
+              </span>
+            </div>
+            <div class="loc-chip-actions">
+              <button type="button" id="seekerUpdateLocationBtn" class="loc-chip-btn ghost" title="Refresh GPS location">Refresh</button>
+              <button type="button" id="seekerManualToggleBtn" class="loc-chip-btn ghost" title="Change coordinates">Change</button>
+            </div>
+          </div>
+        {% endif %}
+        <span id="seekerLocationStatus" class="loc-chip-msg" role="status" aria-live="polite"></span>
+      </div>
     </div>
-  </div>
-  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-    <span id="seekerLocationStatus" class="muted" style="font-size: 13px;"></span>
-    <button type="button" id="seekerUpdateLocationBtn" class="btn small primary" style="white-space: nowrap;">Use My
-      Current Location</button>
-    <button type="button" id="seekerManualToggleBtn" class="btn small ghost" style="white-space: nowrap;">Enter
-      Coordinates</button>
-  </div>
-</div>
-{% else %}
-<div class="panel location-banner" id="seekerLocationBanner"
-  style="display: flex; justify-content: space-between; align-items: center; background: rgba(197, 243, 107, 0.06); border: 1px solid var(--line-subtle); border-radius: 12px; padding: 12px 20px; margin-bottom: 24px; gap: 14px; flex-wrap: wrap;">
-  <div style="display: flex; align-items: center; gap: 12px;">
-    <span style="font-size: 20px;">📍</span>
-    <div>
-      <span style="color: var(--text-main); font-size: 13.5px; font-weight: 600;">Saved Coordinates: <strong
-          style="color: var(--lime);">{{ session.get('lat')|round(4) }}, {{ session.get('lng')|round(4)
-          }}</strong></span>
-      <span id="seekerLocationStatus" class="muted" style="font-size: 12.5px; margin-left: 8px;"></span>
-    </div>
-  </div>
-  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-    <button type="button" id="seekerUpdateLocationBtn" class="btn small ghost" style="white-space: nowrap;">Refresh
-      Location</button>
-    <button type="button" id="seekerManualToggleBtn" class="btn small" style="white-space: nowrap;">Change
-      Coordinates</button>
-  </div>
-</div>
-{% endif %}
-
-<!-- Collapsible Manual Location Form -->
-<div id="seekerManualLocationCard"
-  style="display: none; padding: 16px 20px; background: #0E2E29; border: 1px solid var(--lime-border); border-radius: 12px; margin-bottom: 24px; box-shadow: var(--shadow);">
-  <p class="field-hint" style="margin: 0 0 12px; color: var(--body); font-size: 13.5px;">
-    Browser geolocation usually requires localhost or HTTPS and user permission. You can enter or update your
-    coordinates manually:
-  </p>
-  <div class="grid two" style="gap: 14px;">
-    <label>Latitude (-90 to 90)
-      <input type="number" step="any" min="-90" max="90" id="manualSeekerLat" placeholder="e.g. 26.7606"
-        value="{{ session.get('lat') or '' }}">
-    </label>
-    <label>Longitude (-180 to 180)
-      <input type="number" step="any" min="-180" max="180" id="manualSeekerLng" placeholder="e.g. 83.3732"
-        value="{{ session.get('lng') or '' }}">
-    </label>
-  </div>
-  <div style="display: flex; gap: 10px; margin-top: 14px;">
-    <button type="button" id="saveSeekerManualLocationBtn" class="btn small primary">Save Coordinates</button>
-    <button type="button" id="cancelSeekerManualLocationBtn" class="btn small ghost">Cancel</button>
-  </div>
-</div>
-<section class="dashboard-head">
-  <div>
-    <p class="eyebrow">Your local request desk</p>
     <h1>What do you need help with?</h1>
     <p class="lead">Tell nearby providers what you are looking for and compare real responses in one place.</p>
   </div>
@@ -74,6 +44,33 @@
     <a class="btn" href="{{ url_for('emergency_bed_page') }}">Find emergency bed</a>
   </div>
 </section>
+
+<!-- Collapsible Manual Location Form -->
+<div id="seekerManualLocationCard" class="panel seeker-manual-card" style="display: none;">
+  <div class="seeker-manual-card-head">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 16px;">📍</span>
+      <strong style="color: var(--text-main); font-size: 14px;">Set Location Coordinates Manually</strong>
+    </div>
+    <button type="button" id="cancelSeekerManualLocationBtn" class="btn small ghost" style="padding: 3px 10px; font-size: 12px;">Close</button>
+  </div>
+  <p class="field-hint" style="margin: 6px 0 12px; color: var(--muted); font-size: 12.5px;">
+    Browser geolocation requires HTTPS and user permission. You can enter or update your coordinates manually:
+  </p>
+  <div class="grid two" style="gap: 12px;">
+    <label style="font-size: 13px;">Latitude (-90 to 90)
+      <input type="number" step="any" min="-90" max="90" id="manualSeekerLat" placeholder="e.g. 26.7606"
+        value="{{ session.get('lat') or '' }}">
+    </label>
+    <label style="font-size: 13px;">Longitude (-180 to 180)
+      <input type="number" step="any" min="-180" max="180" id="manualSeekerLng" placeholder="e.g. 83.3732"
+        value="{{ session.get('lng') or '' }}">
+    </label>
+  </div>
+  <div style="display: flex; gap: 10px; margin-top: 12px;">
+    <button type="button" id="saveSeekerManualLocationBtn" class="btn small primary">Save Coordinates</button>
+  </div>
+</div>
 
 <section id="seekerReservationsSection" class="section-block seeker-reservations-section" aria-live="polite">
   <div class="reservations-grid">
