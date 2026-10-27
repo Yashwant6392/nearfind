@@ -55,6 +55,8 @@ def json_response(success=True, data=None, error=None, status=200, preserve_none
 def wants_json():
     if request.is_json:
         return True
+    if request.headers.get("Accept", "").startswith("application/json"):
+        return True
     api_paths = (
         "/query/list",
         "/query/responses/",
@@ -64,6 +66,7 @@ def wants_json():
         "/user/",
         "/location/",
         "/provider/driver-location",
+        "/provider/request/",
         "/notifications",
         "/hospitals/search",
         "/seeker/active-reservations",
@@ -2726,7 +2729,13 @@ def list_queries():
     rows = table("queries").select("*, users:seeker_id(name)").eq("status", "open").execute().data or []
     priority = {"very_urgent": 0, "urgent": 1, "normal": 2}
     items = []
+    seen_ids = set()
     for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = row.get("id")
+        if not row_id or row_id in seen_ids:
+            continue
         if row.get("status") != "open":
             continue
         qlat, qlng, loc_src = get_query_effective_coordinates(row)
@@ -2749,6 +2758,7 @@ def list_queries():
                 pass
         max_allowed = min(radius, query_radius, provider_radius) if provider_radius else min(radius, query_radius)
         if distance <= max_allowed:
+            seen_ids.add(row_id)
             items.append(
                 {
                     "id": row["id"],
@@ -3381,39 +3391,69 @@ def provider_driver_requests():
         if hasattr(bookings_query, "order"):
             bookings_query = bookings_query.order("created_at", desc=True)
         bookings_data = bookings_query.execute().data or []
+        if isinstance(bookings_data, dict):
+            bookings_data = [bookings_data]
+        elif not isinstance(bookings_data, list):
+            bookings_data = []
+
+        seeker_ids = list({b["seeker_id"] for b in bookings_data if isinstance(b, dict) and b.get("seeker_id")})
+        request_ids = list({b["request_id"] for b in bookings_data if isinstance(b, dict) and b.get("request_id")})
+
+        seeker_map = {}
+        if seeker_ids:
+            try:
+                s_query = table("users").select("id,name,phone")
+                if hasattr(s_query, "in_"):
+                    s_rows = s_query.in_("id", seeker_ids).execute().data or []
+                    seeker_map = {r["id"]: r for r in s_rows if isinstance(r, dict) and r.get("id")}
+            except Exception as s_err:
+                app.logger.warning("Batch seeker lookup failed for driver bookings: %s", s_err)
+
+        request_map = {}
+        if request_ids:
+            try:
+                r_query = table("driver_requests").select("id,pickup_address,destination_address,duration_minutes,amenities")
+                if hasattr(r_query, "in_"):
+                    r_rows = r_query.in_("id", request_ids).execute().data or []
+                    request_map = {r["id"]: r for r in r_rows if isinstance(r, dict) and r.get("id")}
+            except Exception as r_err:
+                app.logger.warning("Batch driver request lookup failed: %s", r_err)
+
         for b in bookings_data:
+            if not isinstance(b, dict):
+                continue
             seeker_id = b.get("seeker_id")
-            if seeker_id:
+            if seeker_id and seeker_id in seeker_map:
+                seeker_info = seeker_map[seeker_id]
+            elif seeker_id:
                 try:
-                    b["seeker"] = (
-                        table("users")
-                        .select("name,phone")
-                        .eq("id", seeker_id)
-                        .maybe_single()
-                        .execute()
-                        .data
-                    )
+                    seeker_info = table("users").select("name,phone").eq("id", seeker_id).maybe_single().execute().data
                 except Exception:
-                    b["seeker"] = None
-            if b.get("request_id"):
+                    seeker_info = None
+            else:
+                seeker_info = None
+            b["seeker"] = seeker_info
+            b["users"] = seeker_info
+
+            req_id = b.get("request_id")
+            if req_id and req_id in request_map:
+                req_info = request_map[req_id]
+            elif req_id:
                 try:
-                    b["request"] = (
-                        table("driver_requests")
-                        .select("pickup_address,destination_address,duration_minutes,amenities")
-                        .eq("id", b["request_id"])
-                        .maybe_single()
-                        .execute()
-                        .data
-                    )
+                    req_info = table("driver_requests").select("pickup_address,destination_address,duration_minutes,amenities").eq("id", req_id).maybe_single().execute().data
                 except Exception:
-                    b["request"] = None
+                    req_info = None
+            else:
+                req_info = None
+            b["request"] = req_info
+            b["driver_requests"] = req_info
 
             if b.get("status") in ("accepted", "in_progress"):
                 active_bookings.append(b)
             else:
                 past_bookings.append(b)
-    except Exception:
-        app.logger.warning("Could not query driver_bookings for provider")
+    except Exception as err:
+        app.logger.warning("Could not query driver_bookings for provider: %s", err)
 
     return render_template(
         "driver/requests.html",
@@ -3674,6 +3714,27 @@ def reviewer_driver_profiles():
     return render_template("driver/reviewer_profiles.html", profiles=profiles)
 
 
+@app.get("/provider/request/<query_id>")
+@provider_required
+def provider_request_detail(query_id):
+    if not valid_uuid(query_id):
+        raise ValueError("Invalid request id")
+    expire_open_queries()
+    query = get_query(query_id)
+    if not query:
+        return render_request_error(404, "Request not found.")
+    provider = current_profile()
+    allowed, detail, status = provider_query_eligibility(query, provider)
+    if not allowed:
+        if wants_json():
+            return json_response(False, error=detail, status=status)
+        return render_template("error.html", message=detail), status
+    distance = round(detail, 2)
+    if wants_json():
+        return json_response(True, data={"query": query, "distance": distance})
+    return redirect(url_for("provider_respond_page", query_id=query_id))
+
+
 @app.get("/provider/respond/<query_id>")
 @provider_required
 def provider_respond_page(query_id):
@@ -3774,6 +3835,9 @@ def seeker_responses_page(query_id):
     return render_template("seeker/responses.html", query=query)
 
 
+_SIMILARITY_RESPONSE_CACHE = {}
+
+
 @app.get("/query/responses/<query_id>")
 @seeker_required
 def query_responses(query_id):
@@ -3781,17 +3845,52 @@ def query_responses(query_id):
     if not query:
         return json_response(False, error="Request not found or access denied", status=404)
     qlat, qlng, loc_source = get_query_effective_coordinates(query)
-    rows = (
-        table("responses")
-        .select("*, users!responses_provider_id_fkey(id,name,business_name,provider_type,phone,lat,lng)")
-        .eq("query_id", query_id)
-        .order("created_at", desc=False)
-        .execute()
-        .data
-        or []
-    )
+    try:
+        res = (
+            table("responses")
+            .select("*, users!responses_provider_id_fkey(id,name,business_name,provider_type,phone,lat,lng)")
+            .eq("query_id", query_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        rows = res.data or []
+    except Exception as err:
+        app.logger.warning("responses select with join failed: %s; trying fallback", err)
+        try:
+            res = (
+                table("responses")
+                .select("*")
+                .eq("query_id", query_id)
+                .order("created_at", desc=False)
+                .execute()
+            )
+            rows = res.data or []
+            provider_ids = list({r["provider_id"] for r in rows if isinstance(r, dict) and r.get("provider_id")})
+            if provider_ids:
+                u_res = table("users").select("id,name,business_name,provider_type,phone,lat,lng").in_("id", provider_ids).execute()
+                u_map = {u["id"]: u for u in (u_res.data or []) if isinstance(u, dict) and u.get("id")}
+                for r in rows:
+                    if isinstance(r, dict) and not r.get("users") and r.get("provider_id") in u_map:
+                        r["users"] = u_map[r["provider_id"]]
+        except Exception as fallback_err:
+            app.logger.error("Failed to query responses fallback for query %s: %s", query_id, fallback_err)
+            rows = []
+
+    if isinstance(rows, dict):
+        rows = [rows]
+    elif not isinstance(rows, list):
+        rows = []
+
     responses = []
+    seen_response_ids = set()
     for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = row.get("id")
+        if not row_id or row_id in seen_response_ids:
+            continue
+        seen_response_ids.add(row_id)
+
         provider = row.get("users") or {}
         selected = row.get("status") == "selected"
         plat, plng, _ = get_provider_effective_location(provider)
@@ -3807,23 +3906,28 @@ def query_responses(query_id):
                 distance = None
         similarity = None
         if query.get("image_url") and row.get("image_url"):
-            try:
-                sim_res = compare_images(query["image_url"], row["image_url"])
-                if sim_res.get("available"):
-                    similarity = {
-                        "score": sim_res["score"],
-                        "level": sim_res["level"],
-                        "raw_similarity": sim_res["raw_similarity"],
-                        "disclaimer": sim_res["disclaimer"],
-                    }
-            except Exception as err:
-                app.logger.warning("Similarity calculation skipped: %s", err)
-                similarity = None
+            cache_key = (query["image_url"], row["image_url"])
+            if cache_key in _SIMILARITY_RESPONSE_CACHE:
+                similarity = _SIMILARITY_RESPONSE_CACHE[cache_key]
+            else:
+                try:
+                    sim_res = compare_images(query["image_url"], row["image_url"])
+                    if sim_res.get("available"):
+                        similarity = {
+                            "score": sim_res["score"],
+                            "level": sim_res["level"],
+                            "raw_similarity": sim_res["raw_similarity"],
+                            "disclaimer": sim_res["disclaimer"],
+                        }
+                    _SIMILARITY_RESPONSE_CACHE[cache_key] = similarity
+                except Exception as err:
+                    app.logger.warning("Similarity calculation skipped: %s", err)
+                    similarity = None
 
         responses.append(
             {
-                "id": row["id"],
-                "provider_id": row["provider_id"],
+                "id": row.get("id"),
+                "provider_id": row.get("provider_id"),
                 "provider_name": provider.get("name"),
                 "business_name": provider.get("business_name"),
                 "provider_type": provider.get("provider_type"),

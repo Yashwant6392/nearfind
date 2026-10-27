@@ -995,27 +995,40 @@ select option { background: #0B2420; color: var(--text-main); }
   background: var(--surface-card); border: 1px solid var(--line-subtle);
   border-radius: 12px; padding: 16px; cursor: pointer;
   transition: border-color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease;
+  min-width: 0; overflow: hidden;
+  word-break: break-word; overflow-wrap: break-word;
 }
 .query-card:hover, .query-card.active {
   border-color: var(--lime); background: var(--surface-card-hover);
   transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 .query-card-foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-subtle);
   color: var(--muted); font-size: 12.5px;
+  flex-wrap: wrap;
 }
-.query-card-foot .btn { flex: 0 0 auto; }
+.query-card-foot .btn { flex: 0 0 auto; white-space: nowrap; }
+.query-card-actions {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
 .query-detail {
   display: grid; gap: 14px; align-content: start;
   background: var(--panel); border: 1px solid var(--line-subtle); border-radius: 12px;
   padding: 22px; box-shadow: var(--shadow);
+  min-width: 0; overflow: hidden;
+  word-break: break-word; overflow-wrap: break-word;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.query-detail.highlight {
+  border-color: var(--lime);
+  box-shadow: 0 0 0 2px rgba(197, 243, 107, 0.35);
 }
 .query-detail.empty {
   color: var(--muted); place-items: center; text-align: center;
   min-height: 220px; font-size: 14px;
 }
-.query-detail h2 { margin: 0; font-size: 22px; line-height: 1.15; color: #FFFFFF; }
+.query-detail h2 { margin: 0; font-size: 22px; line-height: 1.15; color: #FFFFFF; overflow-wrap: break-word; word-break: break-word; }
 .query-detail img {
   width: 100%; max-height: 220px; object-fit: cover;
   border-radius: 10px; border: 1px solid var(--line-subtle);
@@ -1919,6 +1932,9 @@ select option { background: #0B2420; color: var(--text-main); }
   .actions { flex-direction: column; width: 100%; }
   .actions > .btn, form > .btn:not(.small), .form-card > .btn:not(.small), .hero-actions .btn { width: 100%; }
   .btn.small { width: auto; }
+  .query-card-foot { flex-direction: column; align-items: stretch; gap: 8px; }
+  .query-card-actions { width: 100%; display: flex; gap: 8px; }
+  .query-card-actions .btn { flex: 1 1 auto; text-align: center; }
 }
 
 /* =========================================================================

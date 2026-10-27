@@ -287,6 +287,9 @@ class RestStorageClient:
         return RestBucketClient(self.client, bucket)
 
 
+DEFAULT_TIMEOUT_SECONDS = 20.0
+
+
 class RestSupabaseClient:
     def __init__(self, url, key, publishable_key):
         self.url = url.rstrip("/")
@@ -295,7 +298,7 @@ class RestSupabaseClient:
         self.rest_url = f"{self.url}/rest/v1"
         self.auth_url = f"{self.url}/auth/v1"
         self.storage_url = f"{self.url}/storage/v1"
-        self.http = httpx.Client(timeout=20, trust_env=True)
+        self.http = httpx.Client(timeout=DEFAULT_TIMEOUT_SECONDS, trust_env=True)
         self.auth = RestAuthClient(self)
         self.storage = RestStorageClient(self)
 

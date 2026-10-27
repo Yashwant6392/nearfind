@@ -325,12 +325,12 @@
     if (count) count.textContent = message;
   }
 
-  function setActiveQuery(id) {
+  function setActiveQuery(id, scrollDetail = false) {
     activeQueryId = id;
     list.querySelectorAll(".query-card").forEach((card) => {
       const match = card.dataset.queryId === id;
       card.classList.toggle("active", match);
-      if (match) {
+      if (match && !scrollDetail) {
         try {
           card.scrollIntoView({ behavior: "smooth", block: "nearest" });
         } catch (_) {}
@@ -341,7 +341,15 @@
       marker.openPopup();
       map.panTo(marker.getLatLng(), { animate: true });
     }
-    showDetail(queriesById.get(id));
+    const query = queriesById.get(id);
+    showDetail(query);
+    if (scrollDetail && detail) {
+      try {
+        detail.scrollIntoView({ behavior: "smooth", block: "start" });
+        detail.classList.add("highlight");
+        setTimeout(() => detail.classList.remove("highlight"), 1200);
+      } catch (_) {}
+    }
   }
 
   function renderCard(query) {
@@ -373,9 +381,14 @@
 
     const inspectBtn = node.querySelector("[data-inspect]");
     if (inspectBtn) {
+      inspectBtn.setAttribute("data-query-id", query.id);
+      if (inspectBtn.tagName === "A") {
+        inspectBtn.href = `/provider/request/${query.id}`;
+      }
       inspectBtn.addEventListener("click", (e) => {
+        e.preventDefault();
         e.stopPropagation();
-        setActiveQuery(query.id);
+        setActiveQuery(query.id, true);
       });
     }
 
@@ -397,14 +410,22 @@
 
     node.addEventListener("mouseenter", () => markers.get(query.id)?.openPopup());
     node.addEventListener("click", (event) => {
-      if (event.target.closest("a")) return;
-      setActiveQuery(query.id);
+      if (event.target.closest("a, button")) return;
+      setActiveQuery(query.id, false);
     });
     return node;
   }
 
   function renderQueries(queries) {
-    const openQueries = queries.filter((query) => query.status === "open");
+    const seen = new Set();
+    const uniqueQueries = [];
+    for (const q of (queries || [])) {
+      if (q && q.id && !seen.has(q.id)) {
+        seen.add(q.id);
+        uniqueQueries.push(q);
+      }
+    }
+    const openQueries = uniqueQueries.filter((query) => query.status === "open");
     if (!openQueries.length) {
       showEmpty("No nearby open requests match these filters.");
       return;
@@ -498,6 +519,28 @@
   };
   [radius, category, sort].forEach((el) => el.addEventListener("input", debouncedFetch));
   refreshButton?.addEventListener("click", fetchQueries);
+
+  if (list) {
+    list.addEventListener("click", (event) => {
+      const inspectBtn = event.target.closest("[data-inspect]");
+      if (inspectBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        const queryId = inspectBtn.getAttribute("data-query-id") || inspectBtn.closest(".query-card")?.dataset.queryId;
+        if (queryId) {
+          setActiveQuery(queryId, true);
+        }
+        return;
+      }
+      const card = event.target.closest(".query-card");
+      if (card && !event.target.closest("a, button")) {
+        const queryId = card.dataset.queryId;
+        if (queryId) {
+          setActiveQuery(queryId, false);
+        }
+      }
+    });
+  }
 
   // Directly fetch queries using saved coordinates without waiting for unprompted browser geolocation
   fetchQueries();

@@ -506,7 +506,14 @@
     }
   }
 
-  function renderResponses(responses) {
+  function renderResponses(rawResponses) {
+    const seen = new Set();
+    const responses = [];
+    for (const r of (rawResponses || [])) {
+      if (!r || !r.id || seen.has(r.id)) continue;
+      seen.add(r.id);
+      responses.push(r);
+    }
     responseSnapshot = responses;
     responsesList.replaceChildren();
     const selected = responses.find((response) => response.status === "selected");
@@ -667,9 +674,14 @@
       renderResponses(payload.data.responses);
     } catch (error) {
       console.error("NearFind response fetch failed", error);
-      window.NearFindToast(error.message || "Could not load responses. Check your connection and try again.", "error");
-      providerCount.textContent = "Could not load responses";
-      showListMessage(error.message || "Could not load responses. Check your connection and try again.", "empty");
+      const isAbort = error.name === "AbortError" || (error.message && error.message.includes("timed out"));
+      if (!knownResponses.size) {
+        providerCount.textContent = "Could not load responses";
+        showListMessage(error.message || "Could not load responses. Check your connection and try again.", "empty");
+      }
+      if (!isAbort) {
+        window.NearFindToast(error.message || "Could not load responses. Check your connection and try again.", "error");
+      }
     } finally {
       clearTimeout(timeoutId);
       fetchingResponses = false;

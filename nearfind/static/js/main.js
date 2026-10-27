@@ -23,18 +23,31 @@
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await fetch(url, { ...options, signal: controller.signal });
-      let payload;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        throw new Error("The server returned an invalid response.");
-      }
       if (response.status === 401) {
         sessionStorage.setItem("nearfind-session-message", "Your session has expired. Please log in again.");
         window.location.assign("/login");
         throw new Error("Your session has expired. Please log in again.");
       }
-      if (!response.ok || payload.success === false) {
+      let payload = null;
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        try {
+          payload = await response.json();
+        } catch (_) {
+          payload = null;
+        }
+      }
+      if (!response.ok) {
+        const failureMessage = (payload && errorMessage(payload)) || `Server returned error (${response.status}).`;
+        const failure = new Error(failureMessage);
+        failure.status = response.status;
+        failure.payload = payload;
+        throw failure;
+      }
+      if (!payload) {
+        throw new Error("The server returned an invalid response.");
+      }
+      if (payload.success === false) {
         const failure = new Error(errorMessage(payload, `Request failed (${response.status}).`));
         failure.status = response.status;
         failure.payload = payload;

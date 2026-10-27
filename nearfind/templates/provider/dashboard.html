@@ -177,26 +177,26 @@
 
 <!-- Consistent Query Card Template -->
 <template id="queryTemplate">
-  <article class="query-card panel" style="padding: 16px; background: var(--surface-card); border: 1px solid var(--line-subtle); border-radius: 12px; cursor: pointer; transition: all .18s ease;">
-    <div class="response-head" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-      <div>
-        <h3 data-title style="margin: 0; font-size: 16px; font-weight: 700; color: #FFFFFF;"></h3>
+  <article class="query-card panel" style="padding: 16px; background: var(--surface-card); border: 1px solid var(--line-subtle); border-radius: 12px; cursor: pointer; transition: all .18s ease; min-width: 0; overflow: hidden;">
+    <div class="response-head" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; min-width: 0;">
+      <div style="min-width: 0; flex: 1;">
+        <h3 data-title style="margin: 0; font-size: 16px; font-weight: 700; color: #FFFFFF; overflow-wrap: break-word; word-break: break-word;"></h3>
         <p data-meta class="muted" style="margin: 2px 0 0; font-size: 12px;"></p>
       </div>
-      <span class="status-chip" data-urgency style="font-size: 10px; padding: 2px 8px;"></span>
+      <span class="status-chip" data-urgency style="font-size: 10px; padding: 2px 8px; flex-shrink: 0;"></span>
     </div>
     <div class="query-badges" style="display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap;">
       <span class="badge-dist" data-distance style="background: rgba(197, 243, 107, 0.12); color: var(--lime); padding: 2px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700;"></span>
       <span class="badge-cat muted" data-category style="font-size: 12px;"></span>
     </div>
-    <p class="muted" data-location style="font-size: 12.5px; margin: 4px 0;"></p>
-    <p data-description style="font-size: 13px; color: var(--body); line-height: 1.45; margin: 6px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;"></p>
+    <p class="muted" data-location style="font-size: 12.5px; margin: 4px 0; overflow-wrap: break-word; word-break: break-word;"></p>
+    <p data-description style="font-size: 13px; color: var(--body); line-height: 1.45; margin: 6px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: break-word; word-break: break-word;"></p>
     <div class="thumb" data-image style="margin: 6px 0;"></div>
-    <div class="query-card-foot" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);">
+    <div class="query-card-foot" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 8px;">
       <span data-expiration class="muted" style="font-size: 11.5px;"></span>
-      <div style="display: flex; gap: 6px;">
-        <button type="button" class="btn small ghost" data-inspect style="padding: 4px 10px; font-size: 12px;">View Request</button>
-        <a class="btn small primary" data-respond style="padding: 4px 12px; font-size: 12px;">Submit Offer</a>
+      <div class="query-card-actions" style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+        <button type="button" class="btn small ghost" data-inspect style="padding: 4px 10px; font-size: 12px; white-space: nowrap;">View Request</button>
+        <a class="btn small primary" data-respond style="padding: 4px 12px; font-size: 12px; white-space: nowrap;">Submit Offer</a>
       </div>
     </div>
   </article>
