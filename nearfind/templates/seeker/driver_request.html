@@ -220,11 +220,25 @@
 </section>
 {% endblock %}
 {% block scripts %}
+<script type="application/json" id="nearfindDriverData">
+  {
+    "request": {{ (driver_request or None)|tojson }},
+    "booking": {{ (booking or None)|tojson }}
+  }
+</script>
 <script>
-  {% if driver_request %}
-  window.NEARFIND_DRIVER_REQUEST = {{ driver_request|tojson }};
-  window.NEARFIND_DRIVER_BOOKING = {{ booking|tojson if booking else "null" }};
-  {% endif %}
+  (function () {
+    const dataEl = document.getElementById("nearfindDriverData");
+    if (dataEl) {
+      try {
+        const payload = JSON.parse(dataEl.textContent);
+        if (payload.request) {
+          window.NEARFIND_DRIVER_REQUEST = payload.request;
+          window.NEARFIND_DRIVER_BOOKING = payload.booking;
+        }
+      } catch (_) {}
+    }
+  })();
 </script>
 <script src="{{ url_for('static', filename='js/driver-request-map.js') }}"></script>
 {% endblock %}

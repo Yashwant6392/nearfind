@@ -41,4 +41,6 @@ ALLOWED_URGENCY = {"normal", "urgent", "very_urgent"}
 QUERY_STATUSES = {"open", "matched", "resolved", "closed", "expired"}
 RESPONSE_STATUSES = {"available", "selected", "rejected", "sold"}
 ALLOWED_IMAGE_MIME = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_IMAGE_BYTES = 2 * 1024 * 1024  # 2 MB (2 x 1024 x 1024 bytes)
+MAX_IMAGE_DIMENSION = 1600  # 1600 x 1600 pixels max dimension
+MAX_RAW_IMAGE_DIM = 4096  # Upper bound on raw dimension to protect memory

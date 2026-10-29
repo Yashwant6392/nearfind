@@ -259,13 +259,17 @@
   }
 
   function stopPollingIfTerminal() {
-    if (terminalStatuses.has(query.status) && pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = undefined;
-    }
-    if (terminalStatuses.has(query.status) && locationPollTimer) {
-      clearInterval(locationPollTimer);
-      locationPollTimer = undefined;
+    if (terminalStatuses.has(query.status)) {
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        clearInterval(pollTimer);
+        pollTimer = undefined;
+      }
+      if (locationPollTimer) {
+        clearInterval(locationPollTimer);
+        clearTimeout(locationPollTimer);
+        locationPollTimer = undefined;
+      }
     }
   }
 
@@ -654,14 +658,52 @@
     if (event.target === details) details.close();
   });
 
+  const BASE_POLL_INTERVAL_MS = 5000;
+  const MAX_POLL_INTERVAL_MS = 20000;
+  let consecutiveFailures = 0;
+
+  function scheduleNextPoll(delayMs) {
+    if (pollTimer) {
+      clearTimeout(pollTimer);
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
+    if (terminalStatuses.has(query.status)) {
+      stopPollingIfTerminal();
+      return;
+    }
+    const interval = delayMs !== undefined ? delayMs : (
+      consecutiveFailures > 0
+        ? Math.min(BASE_POLL_INTERVAL_MS * Math.pow(1.5, consecutiveFailures), MAX_POLL_INTERVAL_MS)
+        : BASE_POLL_INTERVAL_MS
+    );
+    pollTimer = setTimeout(async () => {
+      if (terminalStatuses.has(query.status)) {
+        stopPollingIfTerminal();
+        return;
+      }
+      await fetchResponses();
+    }, interval);
+  }
+
+  let activeResponsesController = null;
+
   async function fetchResponses(options = {}) {
     if (document.hidden || fetchingResponses && !options.force) return;
+    if (fetchingResponses && options.force && activeResponsesController) {
+      activeResponsesController.abort();
+      activeResponsesController = null;
+    }
     fetchingResponses = true;
     if (!knownResponses.size) providerCount.textContent = "Loading responses...";
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    activeResponsesController = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
     try {
-      const { payload } = await window.NearFindFetch(`/query/responses/${query.id}`, { cache: "no-store" });
+      const { payload } = await window.NearFindFetch(`/query/responses/${query.id}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       query = payload.data.query || query;
       if (queryStatus) {
         queryStatus.textContent = query.status;
@@ -672,7 +714,12 @@
         throw new Error("Response endpoint returned an invalid payload");
       }
       renderResponses(payload.data.responses);
+      consecutiveFailures = 0;
     } catch (error) {
+      if (error.name === "AbortError" && activeResponsesController !== controller) {
+        return;
+      }
+      consecutiveFailures++;
       console.error("NearFind response fetch failed", error);
       const isAbort = error.name === "AbortError" || (error.message && error.message.includes("timed out"));
       if (!knownResponses.size) {
@@ -684,7 +731,11 @@
       }
     } finally {
       clearTimeout(timeoutId);
+      if (activeResponsesController === controller) {
+        activeResponsesController = null;
+      }
       fetchingResponses = false;
+      scheduleNextPoll();
     }
   }
 
@@ -739,24 +790,26 @@
 
   syncResolveButton();
   fetchResponses();
-  pollTimer = setInterval(() => {
-    if (terminalStatuses.has(query.status)) {
-      stopPollingIfTerminal();
-      return;
-    }
-    fetchResponses();
+  locationPollTimer = setInterval(() => {
+    fetchSelectedProviderLocation();
   }, 3000);
-  locationPollTimer = setInterval(fetchSelectedProviderLocation, 5000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
+      consecutiveFailures = 0;
       fetchResponses({ force: true });
       fetchSelectedProviderLocation();
     }
   });
   [responseSort, responseFilter].forEach((control) => control?.addEventListener("change", () => renderResponses(responseSnapshot)));
   window.addEventListener("pagehide", () => {
-    if (pollTimer) clearInterval(pollTimer);
-    if (locationPollTimer) clearInterval(locationPollTimer);
-    pollTimer = undefined;
+    if (pollTimer) {
+      clearTimeout(pollTimer);
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
+    if (locationPollTimer) {
+      clearInterval(locationPollTimer);
+      locationPollTimer = undefined;
+    }
   }, { once: true });
 })();

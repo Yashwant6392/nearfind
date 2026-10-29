@@ -10,21 +10,23 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import app as nearfind
-from services.supabase_service import SupabaseConnectionError, SupabaseRequestError
+from services.supabase_service import RestAuthClient, SupabaseConnectionError, SupabaseRequestError
 
 
 class FakeAuth:
-    def __init__(self, user_id="11111111-1111-4111-8111-111111111111", raise_on_signup=None, raise_on_login=None):
+    def __init__(self, user_id="11111111-1111-4111-8111-111111111111", raise_on_signup=None, raise_on_login=None, identities=None):
         self.user_id = user_id
         self.raise_on_signup = raise_on_signup
         self.raise_on_login = raise_on_login
+        self.identities = identities
 
     def sign_up(self, credentials):
         if self.raise_on_signup:
             raise self.raise_on_signup
-        return SimpleNamespace(
-            user=SimpleNamespace(id=self.user_id, email=credentials["email"])
-        )
+        user_kwargs = {"id": self.user_id, "email": credentials["email"]}
+        if self.identities is not None:
+            user_kwargs["identities"] = self.identities
+        return SimpleNamespace(user=SimpleNamespace(**user_kwargs))
 
     def sign_in_with_password(self, credentials):
         if self.raise_on_login:
@@ -35,8 +37,13 @@ class FakeAuth:
 
 
 class FakeSupabase:
-    def __init__(self, user_id="11111111-1111-4111-8111-111111111111", raise_on_signup=None, raise_on_login=None):
-        self.auth = FakeAuth(user_id=user_id, raise_on_signup=raise_on_signup, raise_on_login=raise_on_login)
+    def __init__(self, user_id="11111111-1111-4111-8111-111111111111", raise_on_signup=None, raise_on_login=None, identities=None):
+        self.auth = FakeAuth(
+            user_id=user_id,
+            raise_on_signup=raise_on_signup,
+            raise_on_login=raise_on_login,
+            identities=identities,
+        )
 
 
 class FakeUsersTable:
@@ -370,6 +377,183 @@ class TestSignupDuplicateProfile(unittest.TestCase):
 
             self.assertEqual(res.status_code, 409)
             self.assertIn("already exists", res.get_data(as_text=True))
+
+    def test_signup_existing_email_empty_identities_returns_409(self):
+        """When Supabase returns empty identities (user enumeration protection), return clear 409."""
+        csrf = self.csrf_token()
+        users_table = FakeUsersTable(existing_profile=None)
+        supabase_fake = FakeSupabase(user_id=self.user_id, identities=[])
+
+        with patch.object(nearfind, "get_supabase", return_value=supabase_fake), patch.object(
+            nearfind, "table", return_value=users_table
+        ):
+            res = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "Existing Account",
+                    "email": "exists@example.com",
+                    "password": "Password123!",
+                    "phone": "9999999999",
+                    "address": "123 Main St",
+                    "role": "seeker",
+                    "csrf_token": csrf,
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(res.status_code, 409)
+            body = res.get_data(as_text=True)
+            self.assertIn("already exists", body)
+            self.assertIn("Please sign in instead", body)
+            # Must not attempt database insert
+            self.assertEqual(len(users_table.inserted), 0)
+            with self.client.session_transaction() as sess:
+                self.assertNotIn("user_id", sess)
+
+    def test_signup_successful_with_populated_identities(self):
+        """When Supabase returns non-empty identities, normal signup proceeds to completion."""
+        csrf = self.csrf_token()
+        users_table = FakeUsersTable(existing_profile=None)
+        supabase_fake = FakeSupabase(user_id=self.user_id, identities=[{"id": "identity-123"}])
+
+        with patch.object(nearfind, "get_supabase", return_value=supabase_fake), patch.object(
+            nearfind, "table", return_value=users_table
+        ):
+            res = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "New User",
+                    "email": "newuser@example.com",
+                    "password": "Password123!",
+                    "phone": "9999999999",
+                    "address": "123 New St",
+                    "role": "seeker",
+                    "csrf_token": csrf,
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(res.status_code, 302)
+            self.assertIn("/seeker/dashboard", res.headers.get("Location", ""))
+            self.assertEqual(len(users_table.inserted), 1)
+            self.assertEqual(users_table.inserted[0]["email"], "newuser@example.com")
+            with self.client.session_transaction() as sess:
+                self.assertEqual(sess["user_id"], self.user_id)
+
+    def test_signup_foreign_key_violation_users_id_fkey_returns_409(self):
+        """When profile insert fails with 23503 users_id_fkey, safely return 409 duplicate account."""
+        csrf = self.csrf_token()
+        fk_error = SupabaseRequestError(
+            409,
+            'insert or update on table "users" violates foreign key constraint "users_id_fkey"',
+            code="23503",
+        )
+        users_table = FakeUsersTable(existing_profile=None, raise_on_insert=fk_error)
+
+        with patch.object(nearfind, "get_supabase", return_value=FakeSupabase(user_id=self.user_id)), patch.object(
+            nearfind, "table", return_value=users_table
+        ):
+            res = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "Unpersisted Auth User",
+                    "email": "unpersisted@example.com",
+                    "password": "Password123!",
+                    "phone": "9999999999",
+                    "address": "456 Main St",
+                    "role": "seeker",
+                    "csrf_token": csrf,
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(res.status_code, 409)
+            body = res.get_data(as_text=True)
+            self.assertIn("already exists", body)
+            self.assertIn("Please sign in instead", body)
+            # Ensure technical details are not leaked to client
+            self.assertNotIn("23503", body)
+            self.assertNotIn("users_id_fkey", body)
+            with self.client.session_transaction() as sess:
+                self.assertNotIn("user_id", sess)
+
+    def test_signup_unrelated_foreign_key_violation_returns_502_not_duplicate_error(self):
+        """Unrelated foreign-key violations must NOT be misclassified as duplicate email errors."""
+        csrf = self.csrf_token()
+        unrelated_fk_error = SupabaseRequestError(
+            409,
+            'insert or update on table "users" violates foreign key constraint "unrelated_fkey"',
+            code="23503",
+        )
+        users_table = FakeUsersTable(existing_profile=None, raise_on_insert=unrelated_fk_error)
+
+        with patch.object(nearfind, "get_supabase", return_value=FakeSupabase(user_id=self.user_id)), patch.object(
+            nearfind, "table", return_value=users_table
+        ):
+            res = self.client.post(
+                "/auth/signup",
+                data={
+                    "name": "Unrelated FK",
+                    "email": "unrelated@example.com",
+                    "password": "Password123!",
+                    "phone": "9999999999",
+                    "address": "789 Main St",
+                    "role": "seeker",
+                    "csrf_token": csrf,
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(res.status_code, 502)
+            body = res.get_data(as_text=True)
+            self.assertIn("could not be completed", body)
+            self.assertNotIn("already exists", body)
+            with self.client.session_transaction() as sess:
+                self.assertNotIn("user_id", sess)
+
+    def test_rest_auth_client_sign_up_preserves_identities(self):
+        """RestAuthClient.sign_up preserves identities list in response."""
+        from unittest.mock import MagicMock
+
+        # Case 1: Empty identities
+        mock_response_empty = MagicMock()
+        mock_response_empty.status_code = 200
+        mock_response_empty.json.return_value = {
+            "user": {
+                "id": "test-uuid-1",
+                "email": "test1@example.com",
+                "identities": [],
+            }
+        }
+
+        mock_http = MagicMock()
+        mock_http.post.return_value = mock_response_empty
+        mock_client = SimpleNamespace(
+            http=mock_http,
+            auth_url="https://example.supabase.co/auth/v1",
+            publishable_key="anon-key",
+        )
+        auth_client = RestAuthClient(mock_client)
+        result = auth_client.sign_up({"email": "test1@example.com", "password": "password"})
+        self.assertIsNotNone(result.user)
+        self.assertEqual(result.user.id, "test-uuid-1")
+        self.assertEqual(result.user.email, "test1@example.com")
+        self.assertEqual(result.user.identities, [])
+
+        # Case 2: Populated identities
+        mock_response_populated = MagicMock()
+        mock_response_populated.status_code = 200
+        mock_response_populated.json.return_value = {
+            "user": {
+                "id": "test-uuid-2",
+                "email": "test2@example.com",
+                "identities": [{"id": "id-1", "provider": "email"}],
+            }
+        }
+        mock_http.post.return_value = mock_response_populated
+        result2 = auth_client.sign_up({"email": "test2@example.com", "password": "password"})
+        self.assertEqual(len(result2.user.identities), 1)
+        self.assertEqual(result2.user.identities[0]["id"], "id-1")
 
 
 class TestLoginFlow(unittest.TestCase):

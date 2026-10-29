@@ -348,10 +348,12 @@ class HospitalAndDriverWorkflowTests(unittest.TestCase):
 
     def test_admit_hospital_bed_hold_requires_hospital_manager(self):
         self.login_as(role="seeker", is_hospital_manager=False)
-        response = self.client.post(
-            f"/hospitals/holds/{self.HOLD_ID}/admit",
-            data={"csrf_token": "known-csrf-token"},
-        )
+        profile_table = MockTable({"id": self.SEEKER_ID, "is_hospital_manager": False})
+        with patch.object(nearfind, "table", return_value=profile_table):
+            response = self.client.post(
+                f"/hospitals/holds/{self.HOLD_ID}/admit",
+                data={"csrf_token": "known-csrf-token"},
+            )
         self.assertEqual(response.status_code, 403)
 
     def test_admit_hospital_bed_hold_rejects_unauthorized_manager(self):

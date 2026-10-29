@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="provider-shell">
-  <aside class="provider-sidebar panel" style="width: 100%; border: 1px solid var(--lime-border); background: var(--surface); border-radius: 16px; box-shadow: var(--shadow);">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+  <aside class="provider-sidebar panel">
+    <div class="provider-head-card">
       <div>
-        <p class="eyebrow" style="color: var(--lime); margin: 0 0 4px;">Provider Console</p>
-        <h1 style="font-size: 24px; font-weight: 800; color: #FFFFFF; margin: 0; line-height: 1.2;">{{ profile.business_name or profile.name }}</h1>
+        <p class="eyebrow">Provider Console</p>
+        <h1>{{ profile.business_name or profile.name }}</h1>
       </div>
       <span class="status-chip {{ 'available' if profile.is_active else 'expired' }}" style="font-size: 11px; padding: 3px 8px;">
         {{ "Active Provider" if profile.is_active else "Inactive" }}
@@ -13,41 +13,42 @@
     </div>
 
     <!-- Provider Details Card -->
-    <dl style="display: grid; gap: 8px; margin: 16px 0; padding: 12px; background: rgba(0, 0, 0, 0.2); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
-      <div style="display: flex; justify-content: space-between; font-size: 13px;"><dt class="muted" style="font-weight: 600;">Account Type</dt><dd style="margin: 0; font-weight: 700; color: var(--text-main);">{{ (profile.provider_type or "provider")|title }}</dd></div>
-      <div style="display: flex; justify-content: space-between; font-size: 13px;"><dt class="muted" style="font-weight: 600;">Phone</dt><dd style="margin: 0; color: var(--text-main);">{{ profile.phone }}</dd></div>
-      <div style="display: flex; justify-content: space-between; font-size: 13px;"><dt class="muted" style="font-weight: 600;">Address</dt><dd style="margin: 0; color: var(--text-main); text-align: right; max-width: 180px; overflow-wrap: break-word;">{{ profile.address }}</dd></div>
+    <dl class="provider-info-list">
+      <div class="provider-info-row"><dt>Account Type</dt><dd>{{ (profile.provider_type or "provider")|title }}</dd></div>
+      <div class="provider-info-row"><dt>Phone</dt><dd>{{ profile.phone }}</dd></div>
+      <div class="provider-info-row"><dt>Address</dt><dd>{{ profile.address }}</dd></div>
     </dl>
 
     <!-- Real-time Availability & Live Location Sharing Toggle -->
-    <div class="availability-card" style="background: rgba(14, 46, 41, 0.9); border: 1px solid var(--lime-border); border-radius: 12px; padding: 14px 16px; margin: 6px 0 14px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+    <div class="availability-card">
+      <div class="availability-top-row">
         <div>
-          <strong style="color: var(--text-main); font-size: 14px; display: block;">Live Availability</strong>
-          <span id="availabilityStatusLabel" class="muted" style="font-size: 12px;">{{ "Sharing location (Online)" if location_sharing else "Location paused (Offline)" }}</span>
+          <strong class="availability-title">Live Availability</strong>
+          <span id="availabilityStatusLabel" class="availability-sublabel">{{ "Sharing location (Online)" if location_sharing else "Location paused (Offline)" }}</span>
         </div>
         <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0; cursor: pointer;">
           <input type="checkbox" id="providerAvailabilityToggle" {% if location_sharing %}checked{% endif %} style="opacity: 0; width: 0; height: 0;">
           <span class="slider"></span>
         </label>
       </div>
-      <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line-subtle); padding-top: 8px; flex-wrap: wrap; gap: 6px;">
-        <span class="muted" style="font-size: 11.5px;">Coords: <strong id="providerLocationText" style="color: var(--lime);">{{ profile.lat|round(4) if profile.lat else "Not set" }}, {{ profile.lng|round(4) if profile.lng else "Not set" }}</strong></span>
-        <div style="display: flex; gap: 4px;">
-          <button type="button" id="updateProviderLocationBtn" class="btn small ghost" style="padding: 3px 8px; font-size: 11px; color: var(--lime); border-color: rgba(197,243,107,0.3);">GPS</button>
-          <button type="button" id="editProviderCoordsBtn" class="btn small ghost" style="padding: 3px 8px; font-size: 11px; color: var(--text-main); border-color: var(--line-subtle);">Manual</button>
+      <div class="availability-coords-row">
+        <span>Coords: <strong id="providerLocationText">{{ profile.lat|round(4) if profile.lat else "Not set" }}, {{ profile.lng|round(4) if profile.lng else "Not set" }}</strong></span>
+        <div class="coords-btn-group">
+          <button type="button" id="updateProviderLocationBtn" class="btn small ghost">GPS</button>
+          <button type="button" id="editProviderCoordsBtn" class="btn small ghost">Manual</button>
         </div>
       </div>
       <!-- Collapsible Manual Coords Drawer -->
-      <div id="providerManualCoordsCard" style="display: none; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--line-subtle); border-radius: 8px; margin-top: 10px;">
-        <div class="grid two" style="gap: 8px;">
-          <label style="font-size: 11px;">Lat (-90 to 90)
-            <input type="number" step="any" min="-90" max="90" id="manualProviderLat" value="{{ profile.lat or '' }}" placeholder="e.g. 26.7606" style="padding: 6px 8px; font-size: 12px;">
+      <div id="providerManualCoordsCard" class="provider-manual-drawer" style="display: none;">
+        <div class="grid two">
+          <label>Lat (-90 to 90)
+            <input type="number" step="any" min="-90" max="90" id="manualProviderLat" value="{{ profile.lat or '' }}" placeholder="e.g. 26.7606">
           </label>
-          <label style="font-size: 11px;">Lng (-180 to 180)
-            <input type="number" step="any" min="-180" max="180" id="manualProviderLng" value="{{ profile.lng or '' }}" placeholder="e.g. 83.3732" style="padding: 6px 8px; font-size: 12px;">
+          <label>Lng (-180 to 180)
+            <input type="number" step="any" min="-180" max="180" id="manualProviderLng" value="{{ profile.lng or '' }}" placeholder="e.g. 83.3732">
           </label>
         </div>
+        <p class="provider-manual-tip">Tip: You can also click anywhere on the map to place your pin, then click Save Coords.</p>
         <div style="display: flex; gap: 6px; margin-top: 8px;">
           <button type="button" id="saveProviderManualCoordsBtn" class="btn small primary" style="font-size: 11px; padding: 4px 10px;">Save Coords</button>
           <button type="button" id="cancelProviderManualCoordsBtn" class="btn small ghost" style="font-size: 11px; padding: 4px 10px;">Cancel</button>
@@ -56,19 +57,19 @@
     </div>
 
     <!-- Provider Stats -->
-    <div class="metric-grid compact" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
-      <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; text-align: center;">
-        <strong style="color: var(--lime); font-size: 26px; display: block; font-family: 'Manrope', sans-serif;">{{ summary.total }}</strong>
-        <span class="muted" style="font-size: 12px; font-weight: 600;">Total Responses</span>
+    <div class="metric-grid compact">
+      <div>
+        <strong>{{ summary.total }}</strong>
+        <span>Total Responses</span>
       </div>
-      <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; text-align: center;">
-        <strong style="color: var(--lime); font-size: 26px; display: block; font-family: 'Manrope', sans-serif;">{{ summary.selected }}</strong>
-        <span class="muted" style="font-size: 12px; font-weight: 600;">Orders Selected</span>
+      <div>
+        <strong>{{ summary.selected }}</strong>
+        <span>Orders Selected</span>
       </div>
     </div>
 
     <!-- Clear Workflow Links with Accurate Labels -->
-    <div class="driver-workflow-links" aria-label="Driver and Provider workflow" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
+    <div class="driver-workflow-links" aria-label="Driver and Provider workflow">
       {% if driver_profile %}
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--line-subtle); margin-bottom: 2px;">
         <span style="font-size: 11.5px; color: var(--muted);">Driver Status</span>
@@ -77,30 +78,30 @@
         </span>
       </div>
       {% endif %}
-      <a class="btn small" href="{{ url_for('provider_driver_availability') }}" style="width: 100%; text-align: center;">Update Availability</a>
-      <a class="btn small" href="{{ url_for('provider_driver_requests') }}" style="width: 100%; text-align: center;">View Responses &amp; Trips</a>
-      <a class="btn small ghost" href="{{ url_for('provider_driver_onboarding_page') }}" style="width: 100%; text-align: center;">Driver Profile</a>
+      <a class="btn small" href="{{ url_for('provider_driver_availability') }}">Update Availability</a>
+      <a class="btn small" href="{{ url_for('provider_driver_requests') }}">View Responses &amp; Trips</a>
+      <a class="btn small ghost" href="{{ url_for('provider_driver_onboarding_page') }}">Driver Profile</a>
     </div>
 
     <!-- Active Selected Requests / Customer Engagements -->
     {% if selected_responses %}
-    <section class="selected-chats" style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 14px;">
-      <h2 style="font-size: 16px; margin: 0 0 10px; color: #FFFFFF;">Selected Requests ({{ selected_responses|length }})</h2>
+    <section class="selected-chats">
+      <h2>Selected Requests ({{ selected_responses|length }})</h2>
       {% for response in selected_responses %}
-      <div class="selected-response panel" style="padding: 14px; background: rgba(197, 243, 107, 0.06); border: 1px solid var(--lime-border); border-radius: 10px; margin-bottom: 10px;">
+      <div class="selected-response">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-          <strong style="color: var(--text-main); font-size: 14px;">{{ response.queries.item_name if response.queries else "Requested Item" }}</strong>
+          <strong style="color: var(--text-main); font-size: 13.5px;">{{ response.queries.item_name if response.queries else "Requested Item" }}</strong>
           <span class="status-chip selected" style="font-size: 10px;">Selected</span>
         </div>
         {% if response.queries and response.queries.location %}
-        <p class="muted" style="font-size: 12px; margin: 4px 0 4px;">📍 {{ response.queries.location }}</p>
+        <p class="muted" style="font-size: 12px; margin: 2px 0;">📍 {{ response.queries.location }}</p>
         {% endif %}
         {% if response.queries and response.queries.lat is not none and response.queries.lng is not none %}
-        <span class="location-status available" style="font-size: 11px; display: block; margin: 4px 0;">Customer destination available for navigation.</span>
+        <span class="location-status available" style="font-size: 11px; display: block; margin: 2px 0;">Customer destination available for navigation.</span>
         {% else %}
-        <span class="location-status unavailable" style="font-size: 11px; display: block; margin: 4px 0;">Customer destination coordinates unavailable.</span>
+        <span class="location-status unavailable" style="font-size: 11px; display: block; margin: 2px 0;">Customer destination coordinates unavailable.</span>
         {% endif %}
-        <div class="actions" style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+        <div class="actions" style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
           {% if response.queries and response.queries.lat is not none and response.queries.lng is not none %}
           <a class="btn small primary" data-customer-navigation data-lat="{{ response.queries.lat }}" data-lng="{{ response.queries.lng }}" target="_blank" rel="noopener" style="padding: 4px 10px; font-size: 11.5px;">Navigate</a>
           {% endif %}
@@ -115,27 +116,47 @@
     {% endif %}
   </aside>
 
-  <div class="provider-main" style="min-width: 0;">
+  <div class="provider-main">
     <!-- Welcome Header -->
-    <section class="dashboard-head compact" style="padding-top: 0; margin-bottom: 20px;">
+    <section class="provider-dashboard-header">
       <div>
-        <p class="eyebrow" style="color: var(--lime);">Nearby Marketplace</p>
-        <h1 style="color: #FFFFFF; margin: 4px 0 8px;">Nearby Requests</h1>
-        <p class="muted" style="margin: 0; font-size: 15px;">Discover open customer demand within your radius and submit competitive offers.</p>
+        <p class="eyebrow">Nearby Marketplace</p>
+        <h1>Nearby Requests</h1>
+        <p>Discover open customer demand within your radius and submit competitive offers.</p>
       </div>
       <div>
-        <button class="btn primary" id="refreshRequests" type="button" style="display: inline-flex; align-items: center; gap: 6px;">
+        <button class="btn primary refresh-btn" id="refreshRequests" type="button">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           Refresh Requests
         </button>
       </div>
     </section>
 
+    <!-- Location Setup Guidance Banner (shown when coordinates are missing) -->
+    <div id="locationNoticeBanner" class="panel location-notice-banner" style="display: {% if profile.lat is not none and profile.lng is not none %}none{% else %}flex{% endif %};">
+      <div style="display: flex; align-items: center; gap: 12px; min-width: 240px; flex: 1;">
+        <span class="banner-icon" aria-hidden="true">📍</span>
+        <div>
+          <strong>Set your store location to view nearby customer requests</strong>
+          <p>Customer requests are filtered by distance. Use device GPS, enter your coordinates, or click anywhere on the map to set your location.</p>
+        </div>
+      </div>
+      <div class="banner-actions">
+        <button type="button" id="bannerGpsBtn" class="btn primary small" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-weight: 700;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+          Use Device GPS
+        </button>
+        <button type="button" id="bannerManualBtn" class="btn ghost small" style="padding: 7px 14px; border-color: var(--lime); color: var(--lime);">
+          Enter Coordinates / Pin Map
+        </button>
+      </div>
+    </div>
+
     <!-- Filters Strip -->
-    <section class="filters panel slim" style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; background: var(--surface); border: 1px solid var(--line-subtle); border-radius: 12px; padding: 14px 20px;">
-      <label style="display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13.5px;">
+    <section class="filters panel slim">
+      <label>
         <span class="muted">Radius:</span>
-        <select id="radiusFilter" style="width: auto; padding: 6px 12px; font-size: 13.5px;">
+        <select id="radiusFilter">
           <option value="2">2 km</option>
           <option value="5" selected>5 km</option>
           <option value="10">10 km</option>
@@ -143,33 +164,33 @@
           <option value="50">50 km</option>
         </select>
       </label>
-      <label style="display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13.5px;">
+      <label>
         <span class="muted">Category:</span>
-        <select id="categoryFilter" style="width: auto; padding: 6px 12px; font-size: 13.5px;">
+        <select id="categoryFilter">
           <option value="">All Categories</option>
           {% for category in ["Vehicle / Transport", "Repair & Maintenance", "Home Services", "Electrical", "Plumbing", "Electronics", "Computer / IT", "Delivery / Pickup", "Other"] %}
             <option value="{{ category }}">{{ category }}</option>
           {% endfor %}
         </select>
       </label>
-      <label style="display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13.5px;">
+      <label>
         <span class="muted">Sort by:</span>
-        <select id="sortFilter" style="width: auto; padding: 6px 12px; font-size: 13.5px;">
+        <select id="sortFilter">
           <option value="distance">Distance</option>
           <option value="urgency">Urgency</option>
         </select>
       </label>
-      <div style="margin-left: auto;">
-        <span id="demandCount" class="notice" role="status" aria-live="polite" style="font-size: 13px; font-weight: 600;">Loading nearby requests...</span>
+      <div class="filters-status-wrap">
+        <span id="demandCount" class="demand-badge" role="status" aria-live="polite">Loading nearby requests...</span>
       </div>
     </section>
 
     <!-- Map & Requests Split Layout -->
     <section class="provider-layout">
-      <div id="providerMap" class="map" role="application" aria-label="Map of nearby requests" data-lat="{{ profile.lat or '' }}" data-lng="{{ profile.lng or '' }}" style="min-height: 520px; width: 100%; border-radius: 12px; border: 1px solid var(--lime-border); box-shadow: var(--shadow);"></div>
-      <aside class="provider-results" style="display: grid; grid-template-rows: minmax(260px, auto) minmax(260px, auto); gap: 16px; min-height: 0;">
-        <div id="queryCards" class="query-list" style="display: grid; gap: 12px; max-height: 400px; overflow-y: auto; padding-right: 4px;"></div>
-        <div id="queryDetail" class="query-detail panel empty" style="border: 1px solid var(--line-subtle); border-radius: 12px; padding: 20px; background: var(--surface);">Select a request card or map marker to view details and submit an offer.</div>
+      <div id="providerMap" class="map" role="application" aria-label="Map of nearby requests" data-lat="{{ profile.lat or '' }}" data-lng="{{ profile.lng or '' }}"></div>
+      <aside class="provider-results">
+        <div id="queryCards" class="query-list"></div>
+        <div id="queryDetail" class="query-detail panel empty">Select a request card or map marker to view details and submit an offer.</div>
       </aside>
     </section>
   </div>
@@ -177,7 +198,7 @@
 
 <!-- Consistent Query Card Template -->
 <template id="queryTemplate">
-  <article class="query-card panel" style="padding: 16px; background: var(--surface-card); border: 1px solid var(--line-subtle); border-radius: 12px; cursor: pointer; transition: all .18s ease; min-width: 0; overflow: hidden;">
+  <article class="query-card panel" style="padding: 16px; background: var(--surface-card); border: 1px solid var(--line-subtle); border-radius: 12px; cursor: pointer; transition: all .18s ease; min-width: 0; width: 100%; box-sizing: border-box; height: auto; min-height: fit-content; flex-shrink: 0; overflow: visible; display: flex; flex-direction: column;">
     <div class="response-head" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; min-width: 0;">
       <div style="min-width: 0; flex: 1;">
         <h3 data-title style="margin: 0; font-size: 16px; font-weight: 700; color: #FFFFFF; overflow-wrap: break-word; word-break: break-word;"></h3>
@@ -190,7 +211,7 @@
       <span class="badge-cat muted" data-category style="font-size: 12px;"></span>
     </div>
     <p class="muted" data-location style="font-size: 12.5px; margin: 4px 0; overflow-wrap: break-word; word-break: break-word;"></p>
-    <p data-description style="font-size: 13px; color: var(--body); line-height: 1.45; margin: 6px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: break-word; word-break: break-word;"></p>
+    <p data-description style="font-size: 13px; color: var(--body); line-height: 1.45; margin: 6px 0; overflow-wrap: break-word; word-break: break-word; white-space: pre-line; overflow: visible; display: block;"></p>
     <div class="thumb" data-image style="margin: 6px 0;"></div>
     <div class="query-card-foot" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 8px;">
       <span data-expiration class="muted" style="font-size: 11.5px;"></span>

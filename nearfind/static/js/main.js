@@ -356,6 +356,66 @@
     });
   });
 
+  const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+  const MAX_IMAGE_DIM = 1600;
+
+  function resizeAndCompressImage(file, callback) {
+    if (!file) return callback(null, new Error("No file"));
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      return callback(null, new Error("Upload a JPG, PNG or WEBP image under 2 MB."));
+    }
+    const reader = new FileReader();
+    reader.onerror = () => callback(null, new Error("Could not read image file."));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => callback(null, new Error("Could not decode image. Please upload a valid image."));
+      img.onload = () => {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+        let scale = 1;
+        if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
+          scale = Math.min(MAX_IMAGE_DIM / width, MAX_IMAGE_DIM / height);
+        }
+        const targetWidth = Math.round(width * scale);
+        const targetHeight = Math.round(height * scale);
+
+        if (file.size <= MAX_IMAGE_BYTES && width <= MAX_IMAGE_DIM && height <= MAX_IMAGE_DIM) {
+          return callback(file, null, e.target.result);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+        const targetType = file.type === "image/png" ? "image/png" : (file.type === "image/webp" ? "image/webp" : "image/jpeg");
+        const quality = targetType === "image/png" ? undefined : 0.85;
+
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            return callback(null, new Error("Failed to process image."));
+          }
+          if (blob.size > MAX_IMAGE_BYTES) {
+            canvas.toBlob((retryBlob) => {
+              if (!retryBlob || retryBlob.size > MAX_IMAGE_BYTES) {
+                return callback(null, new Error("Image remains over 2 MB limit after compression. Please choose a smaller image."));
+              }
+              const newFile = new File([retryBlob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+              callback(newFile, null, canvas.toDataURL("image/jpeg", 0.7));
+            }, "image/jpeg", 0.7);
+            return;
+          }
+          const ext = targetType === "image/png" ? ".png" : (targetType === "image/webp" ? ".webp" : ".jpg");
+          const newFile = new File([blob], file.name.replace(/\.[^.]+$/, "") + ext, { type: targetType });
+          callback(newFile, null, canvas.toDataURL(targetType, quality));
+        }, targetType, quality);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   document.querySelectorAll("[data-upload-form] .upload-zone").forEach((zone) => {
     const input = zone.querySelector("input[type='file']");
     const img = zone.querySelector(".preview");
@@ -367,19 +427,39 @@
         zone.classList.remove("has-image");
         return;
       }
-      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
-        toast("Upload a JPG, PNG or WEBP image under 5 MB.", "error");
+      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+        toast("Upload a JPG, PNG or WEBP image under 2 MB.", "error");
         input.value = "";
+        img.removeAttribute("src");
+        zone.classList.remove("has-image");
         return;
       }
-      img.src = URL.createObjectURL(file);
-      zone.classList.add("has-image");
+
+      resizeAndCompressImage(file, (processedFile, err, previewUrl) => {
+        if (err || !processedFile) {
+          toast(err ? err.message : "Image could not be processed. Must be under 2 MB.", "error");
+          input.value = "";
+          img.removeAttribute("src");
+          zone.classList.remove("has-image");
+          return;
+        }
+
+        try {
+          const dt = new DataTransfer();
+          dt.items.add(processedFile);
+          input.files = dt.files;
+        } catch (_) {}
+
+        img.src = previewUrl || URL.createObjectURL(processedFile);
+        zone.classList.add("has-image");
+      });
     };
     input.addEventListener("change", showFile);
     remove.addEventListener("click", (event) => {
       event.preventDefault();
       input.value = "";
-      showFile();
+      img.removeAttribute("src");
+      zone.classList.remove("has-image");
     });
     ["dragenter", "dragover"].forEach((name) => zone.addEventListener(name, (event) => {
       event.preventDefault();

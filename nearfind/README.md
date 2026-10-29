@@ -328,9 +328,10 @@ Go to **Storage** in the Supabase Dashboard and configure three buckets:
 
 | Bucket Name | Privacy Level | Purpose | Allowed Files |
 | :--- | :--- | :--- | :--- |
-| `query-images` | **Public** | Reference photos uploaded by seekers | JPG, PNG, WEBP (Max 5 MB) |
-| `response-images` | **Public** | Product photos uploaded by providers | JPG, PNG, WEBP (Max 5 MB) |
+| `query-images` | **Public** | Reference photos uploaded by seekers | JPG, PNG, WEBP (Max 2 MB, max 1600×1600 px) |
+| `response-images` | **Public** | Product photos uploaded by providers | JPG, PNG, WEBP (Max 2 MB, max 1600×1600 px) |
 | `driver-documents` | **Private** | Aadhaar and Driving Licence verification files | JPG, PNG, PDF (Max 5 MB) |
+
 
 For `query-images` and `response-images`, add a Public Read policy:
 ```sql

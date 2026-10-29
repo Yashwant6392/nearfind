@@ -274,7 +274,7 @@
       <div class="product-card-content">
         <div class="product-card-header">
           <span class="status-chip {{ query.status }}">{{ query.status }}</span>
-          <span class="product-card-urgency">{{ query.urgency|replace("_", " ") }}</span>
+          <span class="product-card-urgency {{ query.urgency }}">{{ query.urgency|replace("_", " ")|title }}</span>
         </div>
         <h3>{{ query.item_name }}</h3>
         <p class="product-card-category">{{ query.category }}</p>

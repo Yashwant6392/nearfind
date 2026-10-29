@@ -97,6 +97,10 @@
             providerMarker.bindPopup("<strong>Your Store / Location</strong>");
             map.setView(next, 13);
             if (locationText) locationText.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            if (manualLatInput) manualLatInput.value = lat.toFixed(6);
+            if (manualLngInput) manualLngInput.value = lng.toFixed(6);
+            const banner = document.getElementById("locationNoticeBanner");
+            if (banner) banner.style.display = "none";
             window.NearFindToast?.("Location coordinates updated successfully.", "success");
           } catch (err) {
             window.NearFindToast?.("Failed to save updated coordinates.", "error");
@@ -209,6 +213,8 @@
       map.setView(nextPos, 13);
       if (locationText) locationText.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
       if (manualCoordsCard) manualCoordsCard.style.display = "none";
+      const banner = document.getElementById("locationNoticeBanner");
+      if (banner) banner.style.display = "none";
       window.NearFindToast?.("Coordinates updated successfully.", "success");
       fetchQueries();
     } catch (err) {
@@ -217,6 +223,46 @@
       saveManualCoordsBtn.disabled = false;
       saveManualCoordsBtn.textContent = "Save Coords";
     }
+  });
+
+  // Map click to select store location interactively
+  map.on("click", (e) => {
+    const clickedLat = Number(e.latlng.lat.toFixed(6));
+    const clickedLng = Number(e.latlng.lng.toFixed(6));
+    if (manualLatInput) manualLatInput.value = clickedLat;
+    if (manualLngInput) manualLngInput.value = clickedLng;
+    if (manualCoordsCard) {
+      manualCoordsCard.style.display = "block";
+    }
+    const nextPos = [clickedLat, clickedLng];
+    if (!providerMarker) {
+      providerMarker = L.marker(nextPos, { icon: icon("blue") }).addTo(map);
+    } else {
+      providerMarker.setLatLng(nextPos);
+    }
+    providerMarker.bindPopup("<strong>Selected Location</strong><br><span style='font-size:11px;'>Click 'Save Coords' in sidebar to confirm.</span>").openPopup();
+    window.NearFindToast?.("Pin placed on map. Click 'Save Coords' to confirm.", "info");
+  });
+
+  const bannerGpsBtn = document.getElementById("bannerGpsBtn");
+  bannerGpsBtn?.addEventListener("click", () => {
+    bannerGpsBtn.disabled = true;
+    bannerGpsBtn.textContent = "Detecting GPS…";
+    updateBrowserLocation().finally(() => {
+      bannerGpsBtn.disabled = false;
+      bannerGpsBtn.textContent = "Use Device GPS";
+      fetchQueries();
+    });
+  });
+
+  const bannerManualBtn = document.getElementById("bannerManualBtn");
+  bannerManualBtn?.addEventListener("click", () => {
+    if (manualCoordsCard) {
+      manualCoordsCard.style.display = "block";
+      manualCoordsCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    if (manualLatInput) manualLatInput.focus();
+    window.NearFindToast?.("Enter coordinates or click on the map, then click Save Coords.", "info");
   });
 
   if (updateCoordsBtn) {
@@ -315,7 +361,7 @@
     detail.appendChild(foot);
   }
 
-  function showEmpty(message) {
+  function showEmpty(message, isLocationMissing = false) {
     list.replaceChildren();
     queriesById.clear();
     activeQueryId = undefined;
@@ -323,6 +369,59 @@
     markers.clear();
     showDetail();
     if (count) count.textContent = message;
+
+    if (isLocationMissing) {
+      const card = document.createElement("div");
+      card.className = "panel query-empty-card";
+
+      const iconDiv = document.createElement("div");
+      iconDiv.className = "banner-icon";
+      iconDiv.setAttribute("aria-hidden", "true");
+      iconDiv.textContent = "📍";
+
+      const heading = document.createElement("h3");
+      heading.style.cssText = "color: #FFFFFF; font-size: 15px; font-weight: 700; margin: 0 0 6px;";
+      heading.textContent = "Location Coordinates Needed";
+
+      const desc = document.createElement("p");
+      desc.className = "muted";
+      desc.style.cssText = "font-size: 12.5px; line-height: 1.45; margin: 0 0 14px; max-width: 360px; margin-left: auto; margin-right: auto;";
+      desc.textContent = "Set your store or service coordinates using device GPS, manual entry, or by clicking anywhere on the map to discover nearby customer requests.";
+
+      const btnGroup = document.createElement("div");
+      btnGroup.style.cssText = "display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;";
+
+      const gpsBtn = document.createElement("button");
+      gpsBtn.type = "button";
+      gpsBtn.className = "btn primary small";
+      gpsBtn.style.cssText = "padding: 6px 14px; font-weight: 700;";
+      gpsBtn.textContent = "Use Device GPS";
+      gpsBtn.addEventListener("click", () => {
+        gpsBtn.disabled = true;
+        updateBrowserLocation().finally(() => {
+          gpsBtn.disabled = false;
+          fetchQueries();
+        });
+      });
+
+      const manualBtn = document.createElement("button");
+      manualBtn.type = "button";
+      manualBtn.className = "btn ghost small";
+      manualBtn.style.cssText = "padding: 6px 14px; border-color: var(--lime); color: var(--lime);";
+      manualBtn.textContent = "Enter Coordinates / Pin Map";
+      manualBtn.addEventListener("click", () => {
+        if (manualCoordsCard) {
+          manualCoordsCard.style.display = "block";
+          manualCoordsCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        if (manualLatInput) manualLatInput.focus();
+        window.NearFindToast?.("Enter coordinates or click on the map, then click Save Coords.", "info");
+      });
+
+      btnGroup.append(gpsBtn, manualBtn);
+      card.append(iconDiv, heading, desc, btnGroup);
+      list.appendChild(card);
+    }
   }
 
   function setActiveQuery(id, scrollDetail = false) {
@@ -333,7 +432,7 @@
       if (match && !scrollDetail) {
         try {
           card.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        } catch (_) {}
+        } catch (_) { }
       }
     });
     const marker = markers.get(id);
@@ -348,7 +447,7 @@
         detail.scrollIntoView({ behavior: "smooth", block: "start" });
         detail.classList.add("highlight");
         setTimeout(() => detail.classList.remove("highlight"), 1200);
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 
@@ -357,7 +456,7 @@
     node.dataset.queryId = query.id;
     node.querySelector("[data-title]").textContent = query.item_name;
     node.querySelector("[data-meta]").textContent = `${query.distance_label} · ${formatTime(query.created_at)}`;
-    
+
     const distEl = node.querySelector("[data-distance]");
     if (distEl) distEl.textContent = query.distance_label;
     const catEl = node.querySelector("[data-category]");
@@ -372,7 +471,7 @@
 
     node.querySelector("[data-location]").textContent = "📍 " + (query.location || "Saved request location");
     node.querySelector("[data-description]").textContent = query.description;
-    
+
     const respondLink = node.querySelector("[data-respond]");
     if (respondLink) {
       respondLink.href = `/provider/respond/${query.id}`;
@@ -393,7 +492,7 @@
     }
 
     node.querySelector("[data-expiration]").textContent = `Expires ${formatTime(query.expires_at)}`;
-    
+
     const imageSlot = node.querySelector("[data-image]");
     if (query.image_url) {
       const img = document.createElement("img");
@@ -428,6 +527,54 @@
     const openQueries = uniqueQueries.filter((query) => query.status === "open");
     if (!openQueries.length) {
       showEmpty("No nearby open requests match these filters.");
+      const card = document.createElement("div");
+      card.className = "panel query-empty-card";
+      const curRadius = radius ? radius.value : "5";
+
+      const iconDiv = document.createElement("div");
+      iconDiv.className = "banner-icon";
+      iconDiv.setAttribute("aria-hidden", "true");
+      iconDiv.textContent = "🔍";
+
+      const heading = document.createElement("h3");
+      heading.style.cssText = "color: #FFFFFF; font-size: 15px; font-weight: 700; margin: 0 0 6px;";
+      heading.textContent = `No requests found within ${curRadius} km`;
+
+      const desc = document.createElement("p");
+      desc.className = "muted";
+      desc.style.cssText = "font-size: 12.5px; line-height: 1.45; margin: 0 0 14px; max-width: 360px; margin-left: auto; margin-right: auto;";
+      desc.textContent = `No open requests match your filters within ${curRadius} km. Try expanding your search radius to discover requests located further away.`;
+
+      const btnGroup = document.createElement("div");
+      btnGroup.style.cssText = "display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;";
+
+      const expand10Btn = document.createElement("button");
+      expand10Btn.type = "button";
+      expand10Btn.className = "btn small";
+      expand10Btn.style.cssText = "padding: 5px 12px;";
+      expand10Btn.textContent = "Expand to 10 km";
+      expand10Btn.addEventListener("click", () => {
+        if (radius) {
+          radius.value = "10";
+          fetchQueries();
+        }
+      });
+
+      const expand25Btn = document.createElement("button");
+      expand25Btn.type = "button";
+      expand25Btn.className = "btn small ghost";
+      expand25Btn.style.cssText = "padding: 5px 12px;";
+      expand25Btn.textContent = "Expand to 25 km";
+      expand25Btn.addEventListener("click", () => {
+        if (radius) {
+          radius.value = "25";
+          fetchQueries();
+        }
+      });
+
+      btnGroup.append(expand10Btn, expand25Btn);
+      card.append(iconDiv, heading, desc, btnGroup);
+      list.appendChild(card);
       return;
     }
     list.replaceChildren();
@@ -494,7 +641,7 @@
   async function fetchQueries() {
     if (fetchingQueries || document.hidden) return;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      showEmpty("Set your location coordinates above (GPS or Manual) to discover nearby requests.");
+      showEmpty("Set your location coordinates above (GPS or Manual) to discover nearby requests.", true);
       return;
     }
     fetchingQueries = true;
@@ -505,7 +652,8 @@
       const { payload } = await window.NearFindFetch(`/query/list?${params.toString()}`, { cache: "no-store" });
       renderQueries(payload.data.queries);
     } catch (error) {
-      showEmpty(error.message || "Could not load nearby requests. Check your connection and try again.");
+      const isLocErr = (error.message || "").toLowerCase().includes("location");
+      showEmpty(error.message || "Could not load nearby requests. Check your connection and try again.", isLocErr);
     } finally {
       fetchingQueries = false;
       if (refreshButton) refreshButton.disabled = false;

@@ -289,8 +289,8 @@ class TestSeekerDashboardReservationsBatch(unittest.TestCase):
         from app import get_seeker_bed_reservations
 
         holds_rows = [
-            {"id": "r1", "hospital_id": "hosp-1", "bed_type": "icu", "status": "held", "created_at": "2026-10-19T20:00:00Z", "expires_at": "2026-10-21T20:00:00Z"},
-            {"id": "r2", "hospital_id": "hosp-2", "bed_type": "oxygen", "status": "held", "created_at": "2026-10-19T20:00:00Z", "expires_at": "2026-10-21T20:00:00Z"},
+            {"id": "r1", "hospital_id": "hosp-1", "bed_type": "icu", "status": "held", "created_at": "2026-10-19T20:00:00Z", "expires_at": "2099-01-01T00:00:00Z"},
+            {"id": "r2", "hospital_id": "hosp-2", "bed_type": "oxygen", "status": "held", "created_at": "2026-10-19T20:00:00Z", "expires_at": "2099-01-01T00:00:00Z"},
         ]
 
         class MockQuery:

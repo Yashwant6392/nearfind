@@ -1,6 +1,7 @@
 import errno
 import socket
 import ssl
+import threading
 from types import SimpleNamespace
 from urllib.parse import quote, urlsplit
 
@@ -244,7 +245,18 @@ class RestAuthClient:
         _raise_for_supabase(response)
         data = response.json()
         user = data.get("user") or data
-        return SimpleNamespace(user=SimpleNamespace(id=user.get("id"), email=user.get("email")) if user else None)
+        identities = user.get("identities") if isinstance(user, dict) else None
+        if identities is None and isinstance(data, dict):
+            identities = data.get("identities")
+        return SimpleNamespace(
+            user=SimpleNamespace(
+                id=user.get("id"),
+                email=user.get("email"),
+                identities=identities,
+            )
+            if user
+            else None
+        )
 
     def sign_in_with_password(self, credentials):
         response = self.client.http.post(
@@ -309,6 +321,16 @@ class RestSupabaseClient:
         return RestRpcQuery(self, function_name, payload)
 
 
+_CLIENT_CACHE = {}
+_CLIENT_CACHE_LOCK = threading.RLock()
+
+
+def reset_supabase_clients():
+    """Helper for testing to reset cached client instances."""
+    with _CLIENT_CACHE_LOCK:
+        _CLIENT_CACHE.clear()
+
+
 def get_supabase(admin=False):
     if not Config.SUPABASE_URL:
         raise SupabaseConfigurationError("SUPABASE_URL is not configured.")
@@ -323,9 +345,24 @@ def get_supabase(admin=False):
     if not key:
         missing = "SUPABASE_SERVICE_ROLE_KEY" if admin else "SUPABASE_ANON_KEY"
         raise SupabaseConfigurationError(f"{missing} is not configured.")
-    if key.startswith(("sb_publishable_", "sb_secret_")):
-        return RestSupabaseClient(Config.SUPABASE_URL, key, Config.SUPABASE_ANON_KEY)
-    return create_client(Config.SUPABASE_URL, key)
+
+    cache_key = (admin, Config.SUPABASE_URL, key, Config.SUPABASE_ANON_KEY)
+    with _CLIENT_CACHE_LOCK:
+        cached = _CLIENT_CACHE.get(cache_key)
+        if cached is not None:
+            # Check lifecycle: if httpx.Client is closed, do not reuse
+            http = getattr(cached, "http", None)
+            if http is not None and getattr(http, "is_closed", False):
+                cached = None
+            else:
+                return cached
+
+        if key.startswith(("sb_publishable_", "sb_secret_")):
+            client = RestSupabaseClient(Config.SUPABASE_URL, key, Config.SUPABASE_ANON_KEY)
+        else:
+            client = create_client(Config.SUPABASE_URL, key)
+        _CLIENT_CACHE[cache_key] = client
+        return client
 
 
 def table(name):

@@ -1,20 +1,105 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="dashboard-head compact">
-  <div>
-    <p class="eyebrow">Live provider responses</p>
-    <h1>{{ query.item_name }}</h1>
-    <p>{{ query.description }}</p>
+<section class="dashboard-head compact seeker-request-head">
+  <div class="seeker-request-intro">
+    <div class="request-eyebrow-row">
+      <span class="eyebrow">Live Provider Responses</span>
+      {% if query.category %}
+        <span class="eyebrow-divider" aria-hidden="true">&bull;</span>
+        <span class="request-category-badge">{{ query.category }}</span>
+      {% endif %}
+    </div>
+    <h1 class="request-title">{{ query.item_name }}</h1>
+    {% if query.description and query.description.strip() %}
+      <p class="request-description">{{ query.description }}</p>
+    {% else %}
+      <p class="request-description empty">No additional specifications provided.</p>
+    {% endif %}
   </div>
-  <button class="btn primary" id="resolveBtn" data-query-id="{{ query.id }}" {% if query.status != "matched" %}hidden{% endif %}>Mark Resolved</button>
+  <div class="seeker-request-actions">
+    <button class="btn primary" id="resolveBtn" data-query-id="{{ query.id }}" {% if query.status != "matched" %}hidden{% endif %}>Mark Resolved</button>
+  </div>
 </section>
 
-<section class="request-summary">
-  <div>
-    <span class="status-chip {{ query.status }}" id="queryStatus">{{ query.status }}</span>
-    <p>{{ query.urgency|replace("_", " ") }} · {{ query.radius_km }} km radius · {{ query.location }}</p>
+<section class="request-summary" aria-label="Request details and metadata">
+  <div class="request-summary-body">
+    <div class="request-meta-grid">
+      <!-- 1. Request Status -->
+      <div class="meta-field meta-field-status">
+        <span class="meta-label">Status</span>
+        <div class="meta-control">
+          <span class="status-chip {{ query.status }}" id="queryStatus">{{ query.status }}</span>
+        </div>
+      </div>
+
+      <div class="meta-divider" aria-hidden="true"></div>
+
+      <!-- 2. Urgency Badge -->
+      <div class="meta-field meta-field-urgency">
+        <span class="meta-label">Urgency</span>
+        <div class="meta-control">
+          {% if query.urgency in ["urgent", "very_urgent"] %}
+            <span class="urgency-badge {{ query.urgency }}">
+              <svg class="meta-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <span>{{ query.urgency|replace("_", " ")|title }}</span>
+            </span>
+          {% else %}
+            <span class="urgency-badge normal">
+              <svg class="meta-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              <span>Normal Urgency</span>
+            </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="meta-divider" aria-hidden="true"></div>
+
+      <!-- 3. Search Radius -->
+      <div class="meta-field meta-field-radius">
+        <span class="meta-label">Search Radius</span>
+        <div class="meta-control">
+          <span class="meta-data-val">
+            <svg class="meta-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>
+            </svg>
+            <span><strong>{{ query.radius_km|int if query.radius_km == query.radius_km|int else query.radius_km }} km</strong> Radius</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="meta-divider" aria-hidden="true"></div>
+
+      <!-- 4. Location -->
+      <div class="meta-field meta-field-location">
+        <span class="meta-label">Location</span>
+        <div class="meta-control">
+          <span class="meta-data-val location-val" title="{{ query.location }}">
+            <svg class="meta-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+              <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+            <span class="location-name">{{ query.location or "Location not specified" }}</span>
+          </span>
+        </div>
+      </div>
+    </div>
   </div>
-  {% if query.image_url %}<img src="{{ query.image_url }}" alt="Your product reference">{% endif %}
+
+  {% if query.image_url %}
+  <div class="request-summary-media">
+    <figure class="summary-thumb-figure">
+      <img src="{{ query.image_url }}" alt="Your product reference" loading="lazy">
+      <figcaption class="summary-thumb-label">Reference</figcaption>
+    </figure>
+  </div>
+  {% endif %}
 </section>
 
 <section class="lifecycle" aria-label="Request progress">
@@ -154,8 +239,15 @@
 </dialog>
 {% endblock %}
 {% block scripts %}
+<script type="application/json" id="nearfindQueryData">
+  {{ query|tojson }}
+</script>
 <script>
-  window.NEARFIND_QUERY = {{ query|tojson }};
+  try {
+    window.NEARFIND_QUERY = JSON.parse(document.getElementById("nearfindQueryData").textContent);
+  } catch (_) {
+    window.NEARFIND_QUERY = null;
+  }
 </script>
 <script src="{{ url_for('static', filename='js/seeker-map.js', v='responses-v2') }}"></script>
 {% endblock %}

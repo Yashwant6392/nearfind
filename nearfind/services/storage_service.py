@@ -1,10 +1,12 @@
+import io
 import uuid
+from PIL import Image, ImageOps
 from werkzeug.utils import secure_filename
-from config import ALLOWED_IMAGE_MIME, MAX_IMAGE_BYTES
+from config import ALLOWED_IMAGE_MIME, MAX_IMAGE_BYTES, MAX_IMAGE_DIMENSION, MAX_RAW_IMAGE_DIM
 from services.supabase_service import get_supabase
 
 
-def validate_image(file_storage):
+def validate_image(file_storage, max_dimension=None):
     if not file_storage or not file_storage.filename:
         raise ValueError("Image file is required")
     file_storage.stream.seek(0, 2)
@@ -13,7 +15,7 @@ def validate_image(file_storage):
     if size <= 0:
         raise ValueError("Image file is empty")
     if size > MAX_IMAGE_BYTES:
-        raise ValueError("Image must be 5 MB or smaller")
+        raise ValueError(f"Image must be {MAX_IMAGE_BYTES // (1024 * 1024)} MB or smaller")
     mimetype = file_storage.mimetype
     if mimetype not in ALLOWED_IMAGE_MIME:
         raise ValueError("Only JPG, PNG and WEBP images are allowed")
@@ -33,22 +35,132 @@ def validate_image(file_storage):
     }
     if not signatures.get(mimetype):
         raise ValueError("Invalid image file")
+
+    # Content validation and dimension checks via Pillow
+    try:
+        file_storage.stream.seek(0)
+        with Image.open(file_storage.stream) as img:
+            fmt = (img.format or "").upper()
+            fmt_map = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
+            if fmt not in fmt_map or fmt_map[fmt] != mimetype:
+                raise ValueError("Only JPG, PNG and WEBP images are allowed")
+            if img.width > MAX_RAW_IMAGE_DIM or img.height > MAX_RAW_IMAGE_DIM:
+                raise ValueError(f"Image dimensions exceed maximum allowable limit ({MAX_RAW_IMAGE_DIM}×{MAX_RAW_IMAGE_DIM})")
+            if max_dimension and (img.width > max_dimension or img.height > max_dimension):
+                raise ValueError(f"Image dimensions must not exceed {max_dimension}×{max_dimension} pixels")
+            img.verify()
+    except ValueError:
+        raise
+    except Exception:
+        raise ValueError("Invalid image file")
+    finally:
+        file_storage.stream.seek(0)
+
     return ALLOWED_IMAGE_MIME[mimetype]
 
 
-def upload_public_image(bucket, file_storage, prefix):
+def process_and_optimize_image(file_storage, max_dim=MAX_IMAGE_DIMENSION):
+    """
+    Validates, handles EXIF orientation, resizes oversized images to max_dim x max_dim
+    preserving aspect ratio, and optimizes encoded image bytes.
+    Ensures final payload does not exceed MAX_IMAGE_BYTES.
+    """
     ext = validate_image(file_storage)
+    file_storage.stream.seek(0)
+    with Image.open(file_storage.stream) as raw_img:
+        # Preserve orientation from camera/phone EXIF metadata
+        try:
+            img = ImageOps.exif_transpose(raw_img)
+        except Exception:
+            img = raw_img
+
+        fmt = (raw_img.format or "").upper()
+        if fmt == "JPEG":
+            mimetype = "image/jpeg"
+            save_format = "JPEG"
+        elif fmt == "WEBP":
+            mimetype = "image/webp"
+            save_format = "WEBP"
+        else:
+            mimetype = "image/png"
+            save_format = "PNG"
+
+        # Limit dimensions to max_dim while preserving aspect ratio
+        width, height = img.size
+        if width > max_dim or height > max_dim:
+            resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
+            img.thumbnail((max_dim, max_dim), resample)
+
+        out_buf = io.BytesIO()
+        if save_format == "JPEG":
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            img.save(out_buf, format="JPEG", quality=85, optimize=True)
+        elif save_format == "WEBP":
+            img.save(out_buf, format="WEBP", quality=85, method=4)
+        else:  # PNG
+            img.save(out_buf, format="PNG", optimize=True)
+
+        optimized_bytes = out_buf.getvalue()
+
+        # If payload exceeds MAX_IMAGE_BYTES after initial optimization, perform a reasonable additional compression attempt where supported
+        if len(optimized_bytes) > MAX_IMAGE_BYTES:
+            if save_format == "JPEG":
+                retry_buf = io.BytesIO()
+                img.save(retry_buf, format="JPEG", quality=70, optimize=True)
+                retry_bytes = retry_buf.getvalue()
+                if len(retry_bytes) <= MAX_IMAGE_BYTES or len(retry_bytes) < len(optimized_bytes):
+                    optimized_bytes = retry_bytes
+            elif save_format == "WEBP":
+                retry_buf = io.BytesIO()
+                img.save(retry_buf, format="WEBP", quality=70, method=6)
+                retry_bytes = retry_buf.getvalue()
+                if len(retry_bytes) <= MAX_IMAGE_BYTES or len(retry_bytes) < len(optimized_bytes):
+                    optimized_bytes = retry_bytes
+            elif save_format == "PNG":
+                # For PNG, if image has an unused (fully opaque) alpha channel, convert to RGB to reduce byte size
+                if img.mode == "RGBA":
+                    extrema = img.getextrema()
+                    if len(extrema) == 4 and extrema[3] == (255, 255):
+                        retry_buf = io.BytesIO()
+                        img.convert("RGB").save(retry_buf, format="PNG", optimize=True, compress_level=9)
+                        retry_bytes = retry_buf.getvalue()
+                        if len(retry_bytes) <= MAX_IMAGE_BYTES or len(retry_bytes) < len(optimized_bytes):
+                            optimized_bytes = retry_bytes
+
+        if len(optimized_bytes) > MAX_IMAGE_BYTES:
+            raise ValueError(f"Image must be {MAX_IMAGE_BYTES // (1024 * 1024)} MB or smaller")
+
+        return {
+            "data": optimized_bytes,
+            "ext": ext,
+            "mimetype": mimetype,
+            "width": img.width,
+            "height": img.height,
+        }
+
+
+def upload_public_image(bucket, file_storage, prefix):
+    processed = process_and_optimize_image(file_storage)
+    ext = processed["ext"]
     original = secure_filename(file_storage.filename or "image")
     storage_path = f"{prefix}/{uuid.uuid4().hex}{ext}"
-    data = file_storage.read()
+    data = processed["data"]
     client = get_supabase(admin=True)
     client.storage.from_(bucket).upload(
         storage_path,
         data,
-        {"content-type": file_storage.mimetype, "x-upsert": "false"},
+        {"content-type": processed["mimetype"], "x-upsert": "false"},
     )
     public_url = client.storage.from_(bucket).get_public_url(storage_path)
-    return {"path": storage_path, "image_url": public_url, "filename": original}
+    return {
+        "path": storage_path,
+        "image_url": public_url,
+        "filename": original,
+        "width": processed["width"],
+        "height": processed["height"],
+    }
+
 
 
 ALLOWED_VERIFICATION_MIME = {

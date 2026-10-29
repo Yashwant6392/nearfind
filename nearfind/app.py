@@ -1,9 +1,12 @@
+import concurrent.futures
 import logging
 import math
 import re
 import secrets
+import threading
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from hmac import compare_digest
@@ -328,12 +331,17 @@ def current_profile():
             return g.current_profile
     except RuntimeError:
         pass
-    result = table("users").select("*").eq("id", user_id).maybe_single().execute()
     try:
-        g.current_profile = result.data
+        result = table("users").select("*").eq("id", user_id).maybe_single().execute()
+        data = result.data if result else None
+    except Exception as exc:
+        app.logger.warning("Could not load user profile for %s: %s", user_id, exc)
+        data = None
+    try:
+        g.current_profile = data
     except RuntimeError:
         pass
-    return result.data
+    return data
 
 
 def current_hospital():
@@ -632,7 +640,7 @@ def get_provider_effective_location(provider):
                 .execute()
                 .data
             )
-            if loc and loc.get("sharing_enabled") and valid_coordinates(loc.get("lat"), loc.get("lng")):
+            if isinstance(loc, dict) and loc.get("sharing_enabled") and valid_coordinates(loc.get("lat"), loc.get("lng")):
                 return float(loc["lat"]), float(loc["lng"]), "live_shared"
         except Exception:
             pass
@@ -640,6 +648,12 @@ def get_provider_effective_location(provider):
     plng = provider.get("lng")
     if valid_coordinates(plat, plng):
         return float(plat), float(plng), "saved_profile"
+    try:
+        from flask import has_request_context
+        if has_request_context() and valid_coordinates(session.get("lat"), session.get("lng")):
+            return float(session["lat"]), float(session["lng"]), "session_fallback"
+    except Exception:
+        pass
     return None, None, "missing"
 
 
@@ -963,6 +977,15 @@ def auth_signup():
             )
     if not user:
         raise RuntimeError("Supabase did not create the user")
+    identities = getattr(user, "identities", None)
+    if identities is not None and len(identities) == 0:
+        session.clear()
+        app.logger.info("Signup attempted for existing Supabase account with email %s (empty identities)", email)
+        return render_request_error(
+            409,
+            "An account with this email address already exists. Please sign in instead.",
+            error_code="user_already_exists",
+        )
     profile = {
         "id": user.id,
         "email": email,
@@ -1039,6 +1062,24 @@ def auth_signup():
             is_hospital_mgr = False
         except SupabaseRequestError as error:
             err_text = f"{error.code} {error.message}".lower()
+            is_users_fk_violation = "users_id_fkey" in err_text or (
+                (getattr(error, "code", None) == "23503" or "23503" in err_text)
+                and ("users_id_fkey" in err_text or "auth.users" in err_text)
+            )
+            if is_users_fk_violation:
+                session.clear()
+                app.logger.warning(
+                    "Signup profile insert failed due to unpersisted auth user (users_id_fkey / 23503) for user ID %s email %s: code=%s message=%s",
+                    user.id,
+                    email,
+                    getattr(error, "code", None),
+                    getattr(error, "message", None),
+                )
+                return render_request_error(
+                    409,
+                    "An account with this email address already exists. Please sign in instead.",
+                    error_code="user_already_exists",
+                )
             if error.status_code == 409 or "duplicate key" in err_text or "users_pkey" in err_text:
                 recheck = None
                 try:
@@ -1104,7 +1145,21 @@ def auth_signup():
                     "Your account could not be completed. Please try again.",
                     error_code="profile_creation_failed",
                 )
-        except Exception:
+        except Exception as exc:
+            exc_text = str(exc).lower()
+            if "users_id_fkey" in exc_text:
+                session.clear()
+                app.logger.warning(
+                    "Signup profile insert failed due to unpersisted auth user (users_id_fkey) for user ID %s email %s: %s",
+                    user.id,
+                    email,
+                    exc,
+                )
+                return render_request_error(
+                    409,
+                    "An account with this email address already exists. Please sign in instead.",
+                    error_code="user_already_exists",
+                )
             session.clear()
             app.logger.exception("Unexpected exception during signup profile creation for user %s", user.id)
             return render_request_error(
@@ -1282,6 +1337,9 @@ def update_location():
     ).eq("id", session["user_id"]).execute()
     session["lat"] = lat
     session["lng"] = lng
+    if hasattr(g, "current_profile") and g.current_profile:
+        g.current_profile["lat"] = lat
+        g.current_profile["lng"] = lng
     return json_response(data={"lat": lat, "lng": lng})
 
 
@@ -1339,6 +1397,7 @@ def stop_provider_location():
 @login_required
 def hospital_onboarding():
     existing = None
+    existing_lookup_failed = False
     try:
         existing = (
             table("hospitals")
@@ -1348,14 +1407,25 @@ def hospital_onboarding():
             .execute()
             .data
         )
-    except Exception:
+    except Exception as exc:
+        app.logger.warning("Could not check existing hospital for user %s: %s", session.get("user_id"), exc)
         existing = None
+        existing_lookup_failed = True
 
     if request.method == "GET":
         if existing:
             return redirect(url_for("hospital_dashboard"))
+        if existing_lookup_failed:
+            flash("Unable to verify existing hospital registration. If you have already registered, please try again shortly.", "warning")
         profile = current_profile() or {}
         return render_template("hospital/onboarding.html", profile=profile)
+
+    if existing_lookup_failed:
+        app.logger.error("Hospital onboarding aborted because existing status check failed for user %s", session.get("user_id"))
+        if wants_json():
+            return json_response(False, error="Unable to verify registration status. Please try again.", status=502)
+        flash("Unable to verify registration status due to a database connection issue. Please try again.", "error")
+        return redirect(url_for("hospital_onboarding"))
 
     data = parse_json_or_form()
     name = clean_text(data.get("name"), 160)
@@ -1370,13 +1440,6 @@ def hospital_onboarding():
     emergency_available = parse_nonnegative_count(data.get("emergency_available", 0), "Emergency beds")
     isolation_available = parse_nonnegative_count(data.get("isolation_available", 0), "Isolation beds")
 
-    # Mark user as hospital manager
-    try:
-        table("users").update({"is_hospital_manager": True}).eq("id", session["user_id"]).execute()
-        session["is_hospital_manager"] = True
-    except Exception:
-        app.logger.warning("Could not persist is_hospital_manager on users table")
-
     hospital_record = {
         "manager_id": session["user_id"],
         "name": name,
@@ -1384,28 +1447,97 @@ def hospital_onboarding():
         "phone": phone,
         "lat": lat,
         "lng": lng,
-        "is_verified": False,
-        "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    hospital_res = table("hospitals").insert(hospital_record).execute()
-    created_hospital = hospital_res.data[0] if (hospital_res.data and len(hospital_res.data) > 0) else None
-    hospital_id = created_hospital.get("id") if created_hospital else None
 
-    if hospital_id:
+    hospital_id = None
+    try:
+        if existing:
+            hospital_id = existing.get("id")
+            table("hospitals").update(hospital_record).eq("id", hospital_id).execute()
+        else:
+            hospital_record["id"] = str(uuid.uuid4())
+            hospital_record["is_verified"] = False
+            hospital_record["created_at"] = hospital_record["updated_at"]
+            hospital_res = table("hospitals").insert(hospital_record).execute()
+            created_hospital = hospital_res.data[0] if (hospital_res.data and len(hospital_res.data) > 0) else None
+            hospital_id = (created_hospital.get("id") if created_hospital else None) or hospital_record["id"]
+    except Exception as exc:
+        app.logger.error("Hospital record insert/update failed for user %s: %s", session.get("user_id"), exc)
+        err_str = str(exc).lower()
+        if "duplicate key" in err_str or "unique" in err_str or "23505" in err_str:
+            try:
+                fetch_res = table("hospitals").select("id").eq("manager_id", session["user_id"]).maybe_single().execute().data
+                if fetch_res and fetch_res.get("id"):
+                    hospital_id = fetch_res["id"]
+                    table("hospitals").update(hospital_record).eq("id", hospital_id).execute()
+                else:
+                    raise exc
+            except Exception as retry_exc:
+                app.logger.error("Failed to recover from unique constraint race on hospitals: %s", retry_exc)
+                if wants_json():
+                    return json_response(False, error="Hospital registration could not be saved. Please try again.", status=502)
+                flash("Hospital registration could not be saved. Please try again.", "error")
+                return redirect(url_for("hospital_onboarding"))
+        else:
+            if wants_json():
+                return json_response(False, error="Hospital registration could not be saved. Please try again.", status=502)
+            flash("Hospital registration could not be saved. Please try again.", "error")
+            return redirect(url_for("hospital_onboarding"))
+
+    if not hospital_id:
+        app.logger.error("Hospital onboarding failed to establish a valid hospital_id for user %s", session.get("user_id"))
+        if wants_json():
+            return json_response(False, error="Hospital registration failed. Please try again.", status=502)
+        flash("Hospital registration failed. Please try again.", "error")
+        return redirect(url_for("hospital_onboarding"))
+
+    # Initialize or update bed availability inventory
+    try:
+        existing_avail = None
         try:
-            table("hospital_bed_availability").insert({
-                "hospital_id": hospital_id,
-                "general_available": general_available,
-                "icu_available": icu_available,
-                "oxygen_available": oxygen_available,
-                "emergency_available": emergency_available,
-                "isolation_available": isolation_available,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "verified_at": None,
-            }).execute()
+            existing_avail = (
+                table("hospital_bed_availability")
+                .select("hospital_id")
+                .eq("hospital_id", hospital_id)
+                .maybe_single()
+                .execute()
+                .data
+            )
         except Exception:
-            app.logger.warning("Could not initialize hospital_bed_availability")
+            existing_avail = None
+
+        avail_record = {
+            "hospital_id": hospital_id,
+            "general_available": general_available,
+            "icu_available": icu_available,
+            "oxygen_available": oxygen_available,
+            "emergency_available": emergency_available,
+            "isolation_available": isolation_available,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "verified_at": None,
+        }
+        if existing_avail:
+            table("hospital_bed_availability").update(avail_record).eq("hospital_id", hospital_id).execute()
+        else:
+            table("hospital_bed_availability").insert(avail_record).execute()
+    except Exception as exc:
+        app.logger.error("Failed to save bed availability for hospital %s: %s", hospital_id, exc)
+        if wants_json():
+            return json_response(False, error="Failed to save hospital bed availability. Please try again.", status=502)
+        flash("Failed to save hospital bed availability. Please try again.", "error")
+        return redirect(url_for("hospital_onboarding"))
+
+    # Only persist is_hospital_manager on users table after hospital is successfully stored
+    try:
+        table("users").update({"is_hospital_manager": True}).eq("id", session["user_id"]).execute()
+        session["is_hospital_manager"] = True
+    except Exception as exc:
+        app.logger.warning("Could not persist is_hospital_manager on users table: %s", exc)
+        session["is_hospital_manager"] = True
+
+    if wants_json():
+        return json_response(True, data={"hospital_id": hospital_id, "message": "Hospital onboarding completed successfully."}, status=201)
 
     flash("Hospital onboarding submitted successfully. Bed inventory is active.", "success")
     return redirect(url_for("hospital_dashboard"))
@@ -2709,8 +2841,15 @@ def post_query():
 @seeker_required
 def upload_query_image():
     file_storage = request.files.get("image")
-    result = upload_public_image("query-images", file_storage, session["user_id"])
-    return json_response(data={"image_url": result["image_url"]}, status=201)
+    try:
+        result = upload_public_image("query-images", file_storage, session["user_id"])
+        return json_response(data={"image_url": result["image_url"]}, status=201)
+    except ValueError as err:
+        return json_response(False, error=str(err), status=400)
+    except Exception as err:
+        app.logger.error("Query image upload failed: %s", err)
+        return json_response(False, error="Image upload failed. Please try again.", status=502)
+
 
 
 @app.get("/query/list")
@@ -2749,7 +2888,12 @@ def list_queries():
             distance = haversine(plat, plng, qlat, qlng)
         except (ValueError, TypeError):
             continue
-        query_radius = float(row.get("radius_km") or radius)
+        try:
+            query_radius = float(row.get("radius_km")) if row.get("radius_km") is not None else float(radius)
+            if query_radius <= 0:
+                query_radius = float(radius)
+        except (ValueError, TypeError):
+            query_radius = float(radius)
         provider_radius = None
         if provider.get("service_radius_km"):
             try:
@@ -3781,7 +3925,13 @@ def query_respond():
     )
     image_url = existing.get("image_url") if existing else None
     if request.files.get("image") and request.files["image"].filename:
-        image_url = upload_public_image("response-images", request.files["image"], session["user_id"])["image_url"]
+        try:
+            image_url = upload_public_image("response-images", request.files["image"], session["user_id"])["image_url"]
+        except ValueError as error:
+            if request.headers.get("Accept", "").startswith("application/json") or wants_json():
+                return json_response(False, error=str(error), status=400)
+            flash(f"Image error: {str(error)}", "error")
+            return redirect(url_for("provider_respond_page", query_id=query_id))
     record = {
         "message": clean_text(data.get("message"), 500),
         "price": clean_text(data.get("price"), 80),
@@ -3822,8 +3972,15 @@ def query_respond():
 @app.post("/upload/response-image")
 @provider_required
 def upload_response_image():
-    result = upload_public_image("response-images", request.files.get("image"), session["user_id"])
-    return json_response(data={"image_url": result["image_url"]}, status=201)
+    try:
+        result = upload_public_image("response-images", request.files.get("image"), session["user_id"])
+        return json_response(data={"image_url": result["image_url"]}, status=201)
+    except ValueError as err:
+        return json_response(False, error=str(err), status=400)
+    except Exception as err:
+        app.logger.error("Response image upload failed: %s", err)
+        return json_response(False, error="Image upload failed. Please try again.", status=502)
+
 
 
 @app.get("/seeker/responses/<query_id>")
@@ -3835,7 +3992,83 @@ def seeker_responses_page(query_id):
     return render_template("seeker/responses.html", query=query)
 
 
-_SIMILARITY_RESPONSE_CACHE = {}
+class BoundedCache(OrderedDict):
+    """Thread-safe LRU dictionary bounded by maxsize."""
+
+    def __init__(self, maxsize=512, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.maxsize = maxsize
+        self._lock = threading.RLock()
+
+    def __getitem__(self, key):
+        with self._lock:
+            val = super().__getitem__(key)
+            self.move_to_end(key)
+            return val
+
+    def __setitem__(self, key, value):
+        with self._lock:
+            if super().__contains__(key):
+                self.move_to_end(key)
+            super().__setitem__(key, value)
+            if len(self) > self.maxsize:
+                self.popitem(last=False)
+
+    def get(self, key, default=None):
+        with self._lock:
+            try:
+                val = super().__getitem__(key)
+                self.move_to_end(key)
+                return val
+            except KeyError:
+                return default
+
+    def __contains__(self, key):
+        with self._lock:
+            return super().__contains__(key)
+
+    def setdefault(self, key, default=None):
+        with self._lock:
+            if super().__contains__(key):
+                self.move_to_end(key)
+                return super().__getitem__(key)
+            self[key] = default
+            return default
+
+
+_SIMILARITY_RESPONSE_CACHE = BoundedCache(maxsize=512)
+_SIMILARITY_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="nearfind_sim")
+_SIMILARITY_IN_FLIGHT = set()
+_SIMILARITY_IN_FLIGHT_LOCK = threading.Lock()
+
+
+def _async_compute_similarity(ref_url, prod_url):
+    cache_key = (ref_url, prod_url)
+    try:
+        sim_res = compare_images(
+            ref_url,
+            prod_url,
+            ref_cache_key=ref_url,
+            prod_cache_key=prod_url,
+        )
+        if sim_res and sim_res.get("available"):
+            similarity = {
+                "score": sim_res["score"],
+                "level": sim_res["level"],
+                "raw_similarity": sim_res["raw_similarity"],
+                "disclaimer": sim_res.get("disclaimer", DISCLAIMER),
+            }
+        else:
+            similarity = None
+        _SIMILARITY_RESPONSE_CACHE[cache_key] = similarity
+        return similarity
+    except Exception as err:
+        app.logger.warning("Background similarity calculation failed: %s", err)
+        _SIMILARITY_RESPONSE_CACHE[cache_key] = None
+        return None
+    finally:
+        with _SIMILARITY_IN_FLIGHT_LOCK:
+            _SIMILARITY_IN_FLIGHT.discard(cache_key)
 
 
 @app.get("/query/responses/<query_id>")
@@ -3845,6 +4078,7 @@ def query_responses(query_id):
     if not query:
         return json_response(False, error="Request not found or access denied", status=404)
     qlat, qlng, loc_source = get_query_effective_coordinates(query)
+    rows = None
     try:
         res = (
             table("responses")
@@ -3853,7 +4087,7 @@ def query_responses(query_id):
             .order("created_at", desc=False)
             .execute()
         )
-        rows = res.data or []
+        rows = res.data if res else []
     except Exception as err:
         app.logger.warning("responses select with join failed: %s; trying fallback", err)
         try:
@@ -3864,17 +4098,24 @@ def query_responses(query_id):
                 .order("created_at", desc=False)
                 .execute()
             )
-            rows = res.data or []
+            rows = res.data if res else []
             provider_ids = list({r["provider_id"] for r in rows if isinstance(r, dict) and r.get("provider_id")})
             if provider_ids:
-                u_res = table("users").select("id,name,business_name,provider_type,phone,lat,lng").in_("id", provider_ids).execute()
-                u_map = {u["id"]: u for u in (u_res.data or []) if isinstance(u, dict) and u.get("id")}
-                for r in rows:
-                    if isinstance(r, dict) and not r.get("users") and r.get("provider_id") in u_map:
-                        r["users"] = u_map[r["provider_id"]]
+                try:
+                    u_res = table("users").select("id,name,business_name,provider_type,phone,lat,lng").in_("id", provider_ids).execute()
+                    u_map = {u["id"]: u for u in (u_res.data or []) if isinstance(u, dict) and u.get("id")}
+                    for r in rows:
+                        if isinstance(r, dict) and not r.get("users") and r.get("provider_id") in u_map:
+                            r["users"] = u_map[r["provider_id"]]
+                except Exception as users_err:
+                    app.logger.warning("Failed to lookup users for responses fallback: %s", users_err)
         except Exception as fallback_err:
             app.logger.error("Failed to query responses fallback for query %s: %s", query_id, fallback_err)
-            rows = []
+            return json_response(False, error="Responses could not be loaded at this time. Please try again.", status=502)
+
+    if rows is None:
+        app.logger.error("Response query produced no data object for query %s", query_id)
+        return json_response(False, error="Responses could not be loaded at this time. Please try again.", status=502)
 
     if isinstance(rows, dict):
         rows = [rows]
@@ -3910,19 +4151,25 @@ def query_responses(query_id):
             if cache_key in _SIMILARITY_RESPONSE_CACHE:
                 similarity = _SIMILARITY_RESPONSE_CACHE[cache_key]
             else:
-                try:
-                    sim_res = compare_images(query["image_url"], row["image_url"])
-                    if sim_res.get("available"):
-                        similarity = {
-                            "score": sim_res["score"],
-                            "level": sim_res["level"],
-                            "raw_similarity": sim_res["raw_similarity"],
-                            "disclaimer": sim_res["disclaimer"],
-                        }
-                    _SIMILARITY_RESPONSE_CACHE[cache_key] = similarity
-                except Exception as err:
-                    app.logger.warning("Similarity calculation skipped: %s", err)
-                    similarity = None
+                with _SIMILARITY_IN_FLIGHT_LOCK:
+                    already_running = cache_key in _SIMILARITY_IN_FLIGHT
+                    if not already_running:
+                        _SIMILARITY_IN_FLIGHT.add(cache_key)
+                        future = _SIMILARITY_EXECUTOR.submit(_async_compute_similarity, query["image_url"], row["image_url"])
+                    else:
+                        future = None
+
+                # In test mode, allow fast mock futures to resolve immediately.
+                # In production, do not block the HTTP request thread waiting for slow inference.
+                if future is not None:
+                    wait_time = 0.05 if app.testing else 0.0
+                    try:
+                        similarity = future.result(timeout=wait_time)
+                    except concurrent.futures.TimeoutError:
+                        similarity = None
+                    except Exception as err:
+                        app.logger.warning("Similarity calculation skipped: %s", err)
+                        similarity = None
 
         responses.append(
             {
@@ -4002,7 +4249,32 @@ def response_image_similarity(query_id, response_id):
     ref_image_url = query.get("image_url")
     prod_image_url = resp_row.get("image_url")
 
-    result = compare_images(ref_image_url, prod_image_url)
+    cache_key = (ref_image_url, prod_image_url)
+    if cache_key in _SIMILARITY_RESPONSE_CACHE and _SIMILARITY_RESPONSE_CACHE[cache_key]:
+        cached = _SIMILARITY_RESPONSE_CACHE[cache_key]
+        return json_response(True, data={
+            "success": True,
+            "available": True,
+            "score": cached.get("score"),
+            "level": cached.get("level"),
+            "raw_similarity": cached.get("raw_similarity"),
+            "status": "computed",
+            "disclaimer": cached.get("disclaimer", DISCLAIMER),
+        })
+
+    result = compare_images(
+        ref_image_url,
+        prod_image_url,
+        ref_cache_key=ref_image_url,
+        prod_cache_key=prod_image_url,
+    )
+    if result.get("available"):
+        _SIMILARITY_RESPONSE_CACHE[cache_key] = {
+            "score": result.get("score"),
+            "level": result.get("level"),
+            "raw_similarity": result.get("raw_similarity"),
+            "disclaimer": result.get("disclaimer", DISCLAIMER),
+        }
     return json_response(True, data=result)
 
 

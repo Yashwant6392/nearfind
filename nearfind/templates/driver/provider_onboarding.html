@@ -459,26 +459,101 @@
   const avatarWrap = document.getElementById('photoAvatarWrap');
   const photoStatusChip = document.getElementById('photoStatusChip');
 
+  function compressPhoto(file, cb) {
+    if (!file) return cb(null, new Error("No file selected."));
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      return cb(null, new Error("Please select a JPG, PNG or WEBP image under 2 MB."));
+    }
+    const reader = new FileReader();
+    reader.onerror = () => cb(null, new Error("Could not read image file."));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => cb(null, new Error("Could not decode image file."));
+      img.onload = () => {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+        const maxDim = 1600;
+        let scale = 1;
+        if (width > maxDim || height > maxDim) {
+          scale = Math.min(maxDim / width, maxDim / height);
+        }
+        if (file.size <= 2 * 1024 * 1024 && width <= maxDim && height <= maxDim) {
+          return cb(file);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(width * scale);
+        canvas.height = Math.round(height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const targetType = file.type === "image/png" ? "image/png" : "image/jpeg";
+        canvas.toBlob((blob) => {
+          if (!blob) return cb(null, new Error("Could not compress photo."));
+          if (blob.size > 2 * 1024 * 1024) {
+            canvas.toBlob((rBlob) => {
+              if (!rBlob || rBlob.size > 2 * 1024 * 1024) {
+                return cb(null, new Error("Photo remains over 2 MB limit. Please select a smaller photo."));
+              }
+              cb(new File([rBlob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+            }, "image/jpeg", 0.7);
+            return;
+          }
+          const ext = targetType === "image/png" ? ".png" : ".jpg";
+          cb(new File([blob], file.name.replace(/\.[^.]+$/, "") + ext, { type: targetType }));
+        }, targetType, 0.85);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   if (photoInput) {
     photoInput.addEventListener('change', () => {
-      if (photoInput.files[0]) {
-        if (photoFeedback) photoFeedback.textContent = `Ready: ${photoInput.files[0].name}`;
-        if (uploadPhotoBtn) uploadPhotoBtn.style.display = 'inline-block';
+      const f = photoInput.files[0];
+      if (!f) return;
+      if (!["image/jpeg", "image/png", "image/webp"].includes(f.type)) {
+        if (photoFeedback) {
+          photoFeedback.style.color = 'var(--gold)';
+          photoFeedback.textContent = 'Please select a JPG, PNG or WEBP image under 2 MB.';
+        }
+        photoInput.value = '';
+        if (uploadPhotoBtn) uploadPhotoBtn.style.display = 'none';
+        return;
       }
+      if (photoFeedback) {
+        photoFeedback.style.color = '#FFFFFF';
+        photoFeedback.textContent = `Ready: ${f.name} (${(f.size / 1024 / 1024).toFixed(2)} MB)`;
+      }
+      if (uploadPhotoBtn) uploadPhotoBtn.style.display = 'inline-block';
     });
   }
 
   if (uploadPhotoBtn && photoInput) {
     uploadPhotoBtn.addEventListener('click', async () => {
-      const file = photoInput.files[0];
-      if (!file) return;
+      const rawFile = photoInput.files[0];
+      if (!rawFile) return;
       uploadPhotoBtn.disabled = true;
-      uploadPhotoBtn.textContent = 'Uploading...';
-      if (photoFeedback) photoFeedback.textContent = 'Uploading photo to secure storage...';
+      uploadPhotoBtn.textContent = 'Optimizing & Uploading...';
+      if (photoFeedback) {
+        photoFeedback.style.color = '#FFFFFF';
+        photoFeedback.textContent = 'Optimizing photo for upload...';
+      }
 
-      const formData = new FormData();
-      formData.append('photo', file);
-      formData.append('csrf_token', csrfToken);
+      compressPhoto(rawFile, async (file, err) => {
+        if (err || !file) {
+          uploadPhotoBtn.disabled = false;
+          uploadPhotoBtn.textContent = 'Upload';
+          if (photoFeedback) {
+            photoFeedback.style.color = 'var(--gold)';
+            photoFeedback.textContent = err ? err.message : 'Photo processing failed.';
+          }
+          return;
+        }
+
+        if (photoFeedback) photoFeedback.textContent = 'Uploading photo to secure storage...';
+        const formData = new FormData();
+        formData.append('photo', file);
+        formData.append('csrf_token', csrfToken);
+
 
       try {
         const resp = await fetch('/provider/driver-photo/upload', {
@@ -514,8 +589,10 @@
         uploadPhotoBtn.disabled = false;
         uploadPhotoBtn.textContent = 'Upload';
       }
+      });
     });
   }
+
 
   // 3. Document Asynchronous Uploads
   async function uploadVerificationDoc(fileInput, docType, btnEl, feedbackEl) {
