@@ -19,7 +19,7 @@ import httpx
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
-from config import MAX_IMAGE_BYTES
+from config import MAX_IMAGE_BYTES, SIMILARITY_THRESHOLD_HIGH, SIMILARITY_THRESHOLD_MEDIUM
 
 logger = logging.getLogger(__name__)
 
@@ -274,25 +274,47 @@ def compute_cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     return float(dot / (norm1 * norm2))
 
 
-def normalize_similarity(cosine_sim: float) -> Dict[str, Any]:
+def normalize_similarity(
+    cosine_sim: float,
+    threshold_high: Optional[float] = None,
+    threshold_medium: Optional[float] = None,
+) -> Dict[str, Any]:
     """
-    Normalizes cosine similarity to a 0-100 score and qualitative match level.
+    Normalizes cosine similarity to a 0-100 score, qualitative match level,
+    verdict, and human-readable explanation using configurable thresholds.
+    Accepts thresholds either as decimals in [0.0, 1.0] or percentages in [0.0, 100.0].
     """
     raw = float(cosine_sim)
     clamped = max(0.0, min(1.0, raw))
     score = round(clamped * 100.0, 1)
 
-    if score >= 80.0:
+    th_high = threshold_high if threshold_high is not None else SIMILARITY_THRESHOLD_HIGH
+    th_med = threshold_medium if threshold_medium is not None else SIMILARITY_THRESHOLD_MEDIUM
+
+    if th_high > 1.0:
+        th_high = th_high / 100.0
+    if th_med > 1.0:
+        th_med = th_med / 100.0
+
+    if clamped >= th_high:
         level = "High Match"
-    elif score >= 50.0:
+        verdict = "High Visual Similarity"
+        explanation = "High visual similarity — product features, colors, and contours closely match the reference image."
+    elif clamped >= th_med:
         level = "Moderate Match"
+        verdict = "Medium Visual Similarity"
+        explanation = "Medium visual similarity — some visual features correspond, but notable differences in angle, color, or shape were detected."
     else:
         level = "Low Match"
+        verdict = "Low Visual Similarity"
+        explanation = "Low visual similarity — significant visual or structural differences detected compared to the reference image."
 
     return {
         "score": score,
         "raw_similarity": round(raw, 4),
         "level": level,
+        "verdict": verdict,
+        "explanation": explanation,
     }
 
 
@@ -301,6 +323,8 @@ def compare_images(
     prod_input: Any,
     ref_cache_key: Optional[str] = None,
     prod_cache_key: Optional[str] = None,
+    threshold_high: Optional[float] = None,
+    threshold_medium: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Compares seeker reference image with provider product image.
@@ -319,9 +343,11 @@ def compare_images(
             "available": False,
             "score": None,
             "level": None,
+            "verdict": "Visual comparison unavailable",
             "raw_similarity": None,
             "status": "missing_image",
             "error": f"Missing {' and '.join(missing)} for similarity comparison.",
+            "explanation": "Visual comparison requires both a reference image and a provider product image.",
             "disclaimer": DISCLAIMER,
         }
 
@@ -359,9 +385,11 @@ def compare_images(
                     "available": False,
                     "score": None,
                     "level": None,
+                    "verdict": "Visual comparison unavailable",
                     "raw_similarity": None,
                     "status": "invalid_reference_image",
                     "error": f"Could not load reference image: {err}",
+                    "explanation": "Visual comparison unavailable — reference image could not be loaded or processed.",
                     "disclaimer": DISCLAIMER,
                 }
             except Exception as err:
@@ -370,9 +398,11 @@ def compare_images(
                     "available": False,
                     "score": None,
                     "level": None,
+                    "verdict": "Visual comparison unavailable",
                     "raw_similarity": None,
                     "status": "error",
                     "error": f"Unexpected error reading reference image: {err}",
+                    "explanation": "Visual comparison unavailable — unexpected error reading reference image.",
                     "disclaimer": DISCLAIMER,
                 }
 
@@ -385,9 +415,11 @@ def compare_images(
                     "available": False,
                     "score": None,
                     "level": None,
+                    "verdict": "Visual comparison unavailable",
                     "raw_similarity": None,
                     "status": "invalid_product_image",
                     "error": f"Could not load provider product image: {err}",
+                    "explanation": "Visual comparison unavailable — provider product image could not be loaded or processed.",
                     "disclaimer": DISCLAIMER,
                 }
             except Exception as err:
@@ -396,9 +428,11 @@ def compare_images(
                     "available": False,
                     "score": None,
                     "level": None,
+                    "verdict": "Visual comparison unavailable",
                     "raw_similarity": None,
                     "status": "error",
                     "error": f"Unexpected error reading product image: {err}",
+                    "explanation": "Visual comparison unavailable — unexpected error reading product image.",
                     "disclaimer": DISCLAIMER,
                 }
 
@@ -414,9 +448,11 @@ def compare_images(
                 "available": False,
                 "score": None,
                 "level": None,
+                "verdict": "Visual comparison unavailable",
                 "raw_similarity": None,
                 "status": "model_unavailable",
                 "error": "Image comparison model is currently unavailable.",
+                "explanation": "Visual comparison model is temporarily unavailable. Product details can still be verified directly with the provider.",
                 "disclaimer": DISCLAIMER,
             }
         except Exception as err:
@@ -426,20 +462,24 @@ def compare_images(
                 "available": False,
                 "score": None,
                 "level": None,
+                "verdict": "Visual comparison unavailable",
                 "raw_similarity": None,
                 "status": "processing_error",
                 "error": f"Error during image feature extraction: {err}",
+                "explanation": "Visual comparison unavailable — an error occurred during image feature extraction.",
                 "disclaimer": DISCLAIMER,
             }
 
         cos_sim = compute_cosine_similarity(emb_ref, emb_prod)
-        norm = normalize_similarity(cos_sim)
+        norm = normalize_similarity(cos_sim, threshold_high=threshold_high, threshold_medium=threshold_medium)
 
         return {
             "success": True,
             "available": True,
             "score": norm["score"],
             "level": norm["level"],
+            "verdict": norm["verdict"],
+            "explanation": norm["explanation"],
             "raw_similarity": norm["raw_similarity"],
             "status": "computed",
             "disclaimer": DISCLAIMER,

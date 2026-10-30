@@ -44,3 +44,11 @@ ALLOWED_IMAGE_MIME = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": "
 MAX_IMAGE_BYTES = 2 * 1024 * 1024  # 2 MB (2 x 1024 x 1024 bytes)
 MAX_IMAGE_DIMENSION = 1600  # 1600 x 1600 pixels max dimension
 MAX_RAW_IMAGE_DIM = 4096  # Upper bound on raw dimension to protect memory
+
+# Visual Similarity Configuration (MobileNetV3 feature embedding comparison)
+# Note: Raw cosine similarities from generic un-fine-tuned CNN feature extractors
+# are not calibrated probabilities. These thresholds define High and Medium match levels
+# and are configurable via environment variables for calibration with empirical labeled data.
+SIMILARITY_THRESHOLD_HIGH = float(os.getenv("SIMILARITY_THRESHOLD_HIGH", "0.80"))
+SIMILARITY_THRESHOLD_MEDIUM = float(os.getenv("SIMILARITY_THRESHOLD_MEDIUM", "0.50"))
+

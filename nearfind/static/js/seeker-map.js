@@ -334,6 +334,151 @@
     }
   }
 
+  const similarityRequestsInFlight = new Map();
+
+  async function fetchResponseSimilarity(queryId, responseId) {
+    if (similarityRequestsInFlight.has(responseId)) {
+      return similarityRequestsInFlight.get(responseId);
+    }
+    const promise = (async () => {
+      try {
+        const { payload } = await window.NearFindFetch(`/query/${queryId}/response/${responseId}/similarity`, { cache: "no-store" });
+        return payload && payload.data ? payload.data : null;
+      } catch (err) {
+        console.warn("Similarity fetch error for response", responseId, err);
+        return {
+          available: false,
+          score: null,
+          level: null,
+          verdict: "Visual comparison unavailable",
+          explanation: "Visual comparison unavailable — could not complete image comparison.",
+          status: "error",
+          error: err.message || "Failed to fetch similarity",
+        };
+      } finally {
+        similarityRequestsInFlight.delete(responseId);
+      }
+    })();
+    similarityRequestsInFlight.set(responseId, promise);
+    return promise;
+  }
+
+  function updateSimilarityBox(box, data) {
+    if (!box) return;
+    box.hidden = false;
+    const scoreEl = box.querySelector("[data-similarity-score], [data-detail-similarity-score]");
+    const levelEl = box.querySelector("[data-similarity-level], [data-detail-similarity-level]");
+    const explanationEl = box.querySelector("[data-similarity-explanation], [data-detail-similarity-explanation]");
+    const disclaimerEl = box.querySelector("[data-similarity-disclaimer], [data-detail-similarity-disclaimer]");
+
+    if (data.status === "loading") {
+      if (scoreEl) scoreEl.textContent = "Analyzing visual similarity...";
+      if (levelEl) {
+        levelEl.textContent = "Analyzing";
+        levelEl.className = "similarity-level match-loading";
+      }
+      if (explanationEl) {
+        explanationEl.textContent = "Extracting deep CNN visual features to estimate product match...";
+      }
+      if (disclaimerEl) {
+        disclaimerEl.textContent = data.disclaimer || "Similarity score is an automated visual estimate and does not guarantee that products are identical or authentic.";
+      }
+      return;
+    }
+
+    if (data.available && data.score !== null && data.score !== undefined) {
+      if (scoreEl) scoreEl.textContent = `Estimated Visual Similarity: ${data.score}%`;
+      const verdict = data.verdict || data.level || "Match";
+      const matchClass = (data.level || data.verdict || "match").toLowerCase().replace(/\s+/g, "-");
+      if (levelEl) {
+        levelEl.textContent = verdict;
+        levelEl.className = `similarity-level match-${matchClass}`;
+      }
+      if (explanationEl) {
+        explanationEl.textContent = data.explanation || (
+          data.level === "High Match"
+            ? "High visual similarity — product features and visual patterns closely match the reference."
+            : data.level === "Moderate Match"
+              ? "Medium visual similarity — some visual features correspond, but notable differences exist."
+              : "Low visual similarity — significant visual or structural differences detected."
+        );
+      }
+      if (disclaimerEl) {
+        disclaimerEl.textContent = data.disclaimer || "Similarity score is an automated visual estimate and does not guarantee that products are identical or authentic.";
+      }
+      return;
+    }
+
+    // Unavailable / Error / Missing Image state
+    if (scoreEl) scoreEl.textContent = "Visual comparison unavailable";
+    if (levelEl) {
+      levelEl.textContent = "Unavailable";
+      levelEl.className = "similarity-level match-unavailable";
+    }
+    if (explanationEl) {
+      explanationEl.textContent = data.explanation || data.error || "Visual comparison unavailable for this response.";
+    }
+    if (disclaimerEl) {
+      disclaimerEl.textContent = data.disclaimer || "Product details can still be verified directly with the provider.";
+    }
+  }
+
+  function applySimilarityToCard(container, query, response, isDetail = false) {
+    const boxSelector = isDetail ? "[data-detail-similarity-box]" : "[data-similarity-box]";
+    const box = container.querySelector(boxSelector);
+    if (!box) return;
+
+    const hasRefImage = Boolean(query && query.image_url);
+    const hasProdImage = Boolean(response && response.image_url);
+
+    // Case 1: Missing one or both images
+    if (!hasRefImage || !hasProdImage) {
+      const missing = [];
+      if (!hasRefImage) missing.push("reference image");
+      if (!hasProdImage) missing.push("provider product image");
+      updateSimilarityBox(box, {
+        available: false,
+        status: "missing_image",
+        explanation: `Visual comparison unavailable (${missing.join(" and ")} not provided).`,
+        disclaimer: "Both a reference photo and a product photo are required to calculate visual similarity.",
+      });
+      return;
+    }
+
+    // Case 2: Similarity already computed
+    if (response.similarity && response.similarity.score !== null && response.similarity.score !== undefined) {
+      updateSimilarityBox(box, response.similarity);
+      return;
+    }
+
+    // Case 3: Similarity is explicitly marked unavailable/error
+    if (response.similarity && response.similarity.available === false) {
+      updateSimilarityBox(box, response.similarity);
+      return;
+    }
+
+    // Case 4: Both images present, but similarity is pending/null from backend.
+    // Display loading state and trigger fetch
+    updateSimilarityBox(box, { status: "loading" });
+    fetchResponseSimilarity(query.id, response.id).then((simData) => {
+      if (simData) {
+        response.similarity = simData;
+        updateSimilarityBox(box, simData);
+        if (detailResponseId === response.id && details) {
+          const detailBox = details.querySelector("[data-detail-similarity-box]");
+          if (detailBox) updateSimilarityBox(detailBox, simData);
+        }
+      } else {
+        const fallback = {
+          available: false,
+          explanation: "Visual comparison unavailable — unable to compute similarity score.",
+        };
+        response.similarity = fallback;
+        updateSimilarityBox(box, fallback);
+      }
+    });
+  }
+
   function renderResponse(response) {
     const node = template.content.firstElementChild.cloneNode(true);
     const providerName = response.provider_name || "Provider";
@@ -360,27 +505,7 @@
     addImage(node.querySelector("[data-reference]"), query.image_url, "Your reference", "Your reference product image");
     addImage(node.querySelector("[data-product]"), response.image_url, "Provider product", `${providerName}'s product image`);
 
-    const similarityBox = node.querySelector("[data-similarity-box]");
-    if (similarityBox) {
-      if (response.similarity && response.similarity.score !== null && response.similarity.score !== undefined) {
-        similarityBox.hidden = false;
-        const scoreEl = node.querySelector("[data-similarity-score]");
-        const levelEl = node.querySelector("[data-similarity-level]");
-        const disclaimerEl = node.querySelector("[data-similarity-disclaimer]");
-        if (scoreEl) {
-          scoreEl.textContent = `Estimated Visual Similarity: ${response.similarity.score}%`;
-        }
-        if (levelEl) {
-          levelEl.textContent = response.similarity.level || "";
-          levelEl.className = `similarity-level match-${(response.similarity.level || "").toLowerCase().replace(/\s+/g, "-")}`;
-        }
-        if (disclaimerEl) {
-          disclaimerEl.textContent = response.similarity.disclaimer || "Similarity score is an automated visual estimate and does not guarantee that products are identical or authentic.";
-        }
-      } else {
-        similarityBox.hidden = true;
-      }
-    }
+    applySimilarityToCard(node, query, response, false);
 
     const urls = actionUrls(response);
     const select = node.querySelector("[data-select]");
@@ -557,27 +682,7 @@
     details.querySelector("[data-detail-time]").textContent = formatResponseTime(response.created_at);
     addImage(details.querySelector("[data-detail-image]"), response.image_url, "Provider product", `${response.provider_name || "Provider"} Product`);
 
-    const detailSimBox = details.querySelector("[data-detail-similarity-box]");
-    if (detailSimBox) {
-      if (response.similarity && response.similarity.score !== null && response.similarity.score !== undefined) {
-        detailSimBox.hidden = false;
-        const detailScore = details.querySelector("[data-detail-similarity-score]");
-        const detailLevel = details.querySelector("[data-detail-similarity-level]");
-        const detailDisclaimer = details.querySelector("[data-detail-similarity-disclaimer]");
-        if (detailScore) {
-          detailScore.textContent = `Estimated Visual Similarity: ${response.similarity.score}%`;
-        }
-        if (detailLevel) {
-          detailLevel.textContent = response.similarity.level || "";
-          detailLevel.className = `similarity-level match-${(response.similarity.level || "").toLowerCase().replace(/\s+/g, "-")}`;
-        }
-        if (detailDisclaimer) {
-          detailDisclaimer.textContent = response.similarity.disclaimer || "Similarity score is an automated visual estimate and does not guarantee that products are identical or authentic.";
-        }
-      } else {
-        detailSimBox.hidden = true;
-      }
-    }
+    applySimilarityToCard(details, query, response, true);
 
     const select = details.querySelector("[data-detail-select]");
     select.hidden = response.status !== "available" || query.status !== "open";

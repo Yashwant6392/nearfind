@@ -2480,9 +2480,13 @@ select option { background: #0B2420; color: var(--text-main); }
 }
 
 /* AI Similarity Matching Box */
+.similarity-box[hidden] {
+  display: none !important;
+}
 .similarity-box {
   margin: 12px 0 6px; padding: 12px 14px; border-radius: 8px;
   background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line-subtle); display: grid; gap: 6px;
+  transition: all 0.2s ease;
 }
 .similarity-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
 .similarity-tag {
@@ -2491,9 +2495,34 @@ select option { background: #0B2420; color: var(--text-main); }
 }
 .similarity-score { font-size: 14px; font-weight: 800; color: #FFFFFF; }
 .similarity-level { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
-.similarity-level.match-high-match { background: var(--green-dim); color: var(--green); border: 1px solid rgba(52, 211, 153, 0.3); }
-.similarity-level.match-moderate-match { background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(255, 209, 102, 0.3); }
-.similarity-level.match-low-match { background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(255, 107, 107, 0.3); }
+.similarity-level.match-high-match,
+.similarity-level.match-high-visual-similarity,
+.similarity-level.match-high {
+  background: var(--green-dim); color: var(--green); border: 1px solid rgba(52, 211, 153, 0.3);
+}
+.similarity-level.match-moderate-match,
+.similarity-level.match-medium-match,
+.similarity-level.match-medium-visual-similarity,
+.similarity-level.match-moderate,
+.similarity-level.match-medium {
+  background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(255, 209, 102, 0.3);
+}
+.similarity-level.match-low-match,
+.similarity-level.match-low-visual-similarity,
+.similarity-level.match-low {
+  background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(255, 107, 107, 0.3);
+}
+.similarity-level.match-loading,
+.similarity-level.match-analyzing,
+.similarity-level.match-in-progress {
+  background: rgba(197, 243, 107, 0.12); color: var(--lime); border: 1px solid var(--lime-border);
+}
+.similarity-level.match-unavailable,
+.similarity-level.match-no-comparison,
+.similarity-level.match-error {
+  background: rgba(255, 255, 255, 0.08); color: var(--muted); border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.similarity-explanation { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--body); }
 .similarity-disclaimer { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--muted); font-style: italic; }
 
 /* Availability Toggle Switch */

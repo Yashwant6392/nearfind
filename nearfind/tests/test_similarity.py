@@ -15,6 +15,7 @@ These tests verify:
 
 import io
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -281,9 +282,11 @@ class TestSimilarityEndpointsAndAuth(unittest.TestCase):
         nearfind.app.config["TESTING"] = True
         self.client = nearfind.app.test_client()
         reset_model()
+        nearfind._SIMILARITY_RESPONSE_CACHE.clear()
 
     def tearDown(self):
         reset_model()
+        nearfind._SIMILARITY_RESPONSE_CACHE.clear()
 
     def test_response_image_similarity_invalid_uuids(self):
         with self.client.session_transaction() as sess:
@@ -426,6 +429,201 @@ class TestSimilarityEndpointsAndAuth(unittest.TestCase):
             self.assertEqual(sim["score"], 94.2)
             self.assertEqual(sim["level"], "High Match")
             self.assertEqual(sim["disclaimer"], DISCLAIMER)
+
+    def test_similarity_verdicts_and_explanations_high_medium_low(self):
+        """Verifies clear verdicts and human-readable explanations across high, medium, and low similarity."""
+        high = normalize_similarity(0.92)
+        self.assertEqual(high["score"], 92.0)
+        self.assertEqual(high["level"], "High Match")
+        self.assertEqual(high["verdict"], "High Visual Similarity")
+        self.assertIn("closely match", high["explanation"])
+
+        medium = normalize_similarity(0.68)
+        self.assertEqual(medium["score"], 68.0)
+        self.assertEqual(medium["level"], "Moderate Match")
+        self.assertEqual(medium["verdict"], "Medium Visual Similarity")
+        self.assertIn("differences", medium["explanation"])
+
+        low = normalize_similarity(0.32)
+        self.assertEqual(low["score"], 32.0)
+        self.assertEqual(low["level"], "Low Match")
+        self.assertEqual(low["verdict"], "Low Visual Similarity")
+        self.assertIn("significant visual or structural differences", low["explanation"])
+
+    def test_configurable_similarity_thresholds(self):
+        """Thresholds are configurable and not hardcoded, supporting decimal and percentage inputs."""
+        # With custom threshold_high = 0.70, 0.72 should qualify as High Match
+        custom_high = normalize_similarity(0.72, threshold_high=0.70, threshold_medium=0.40)
+        self.assertEqual(custom_high["level"], "High Match")
+        self.assertEqual(custom_high["verdict"], "High Visual Similarity")
+
+        # With default threshold (0.80), 0.72 is Moderate Match
+        default_mod = normalize_similarity(0.72)
+        self.assertEqual(default_mod["level"], "Moderate Match")
+
+        # Percentage threshold inputs (70.0% and 40.0%)
+        pct_high = normalize_similarity(0.75, threshold_high=70.0, threshold_medium=40.0)
+        self.assertEqual(pct_high["level"], "High Match")
+
+    def test_compare_images_missing_images_reports_unavailable_with_explanation(self):
+        """Missing images produce available=False with 'Visual comparison unavailable' verdict and explanation."""
+        res_no_ref = compare_images(None, _make_test_image())
+        self.assertFalse(res_no_ref["available"])
+        self.assertEqual(res_no_ref["status"], "missing_image")
+        self.assertEqual(res_no_ref["verdict"], "Visual comparison unavailable")
+        self.assertIn("Missing reference image", res_no_ref["error"])
+        self.assertTrue(len(res_no_ref["explanation"]) > 0)
+
+        res_no_prod = compare_images(_make_test_image(), None)
+        self.assertFalse(res_no_prod["available"])
+        self.assertEqual(res_no_prod["status"], "missing_image")
+        self.assertEqual(res_no_prod["verdict"], "Visual comparison unavailable")
+        self.assertIn("Missing product image", res_no_prod["error"])
+
+        res_none = compare_images(None, None)
+        self.assertFalse(res_none["available"])
+        self.assertEqual(res_none["verdict"], "Visual comparison unavailable")
+
+    def test_compare_images_failed_inference_reports_unavailable(self):
+        """Failed inference (corrupt image, model error, extraction error) returns clear unavailable state."""
+        corrupt_bytes = b"not-a-valid-image-data"
+        res_corrupt = compare_images(corrupt_bytes, _make_test_image())
+        self.assertFalse(res_corrupt["available"])
+        self.assertEqual(res_corrupt["verdict"], "Visual comparison unavailable")
+        self.assertIn("Could not load reference image", res_corrupt["error"])
+        self.assertIn("Visual comparison unavailable", res_corrupt["explanation"])
+
+        # Model failure
+        with patch("services.similarity_service.get_model", side_effect=RuntimeError("Weights missing")):
+            res_model = compare_images(_make_test_image(), _make_test_image())
+            self.assertFalse(res_model["available"])
+            self.assertEqual(res_model["status"], "model_unavailable")
+            self.assertEqual(res_model["verdict"], "Visual comparison unavailable")
+            self.assertIn("temporarily unavailable", res_model["explanation"])
+
+    def test_response_image_similarity_endpoint_returns_verdict_and_explanation(self):
+        """API endpoint /query/<query_id>/response/<response_id>/similarity returns verdict and explanation."""
+        query_id = "11111111-1111-4111-8111-111111111111"
+        response_id = "22222222-2222-4222-8222-222222222222"
+        seeker_id = "33333333-3333-4333-8333-333333333333"
+
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = seeker_id
+            sess["role"] = "seeker"
+
+        mock_sim_result = {
+            "success": True,
+            "available": True,
+            "score": 91.5,
+            "level": "High Match",
+            "verdict": "High Visual Similarity",
+            "explanation": "High visual similarity — product features and visual patterns closely match the reference image.",
+            "raw_similarity": 0.915,
+            "status": "computed",
+            "disclaimer": DISCLAIMER,
+        }
+
+        class MockQueryTable:
+            def select(self, *a): return self
+            def eq(self, *a): return self
+            def maybe_single(self): return self
+            def execute(self): return SimpleNamespace(data={"id": query_id, "seeker_id": seeker_id, "image_url": "https://cdn.example.com/ref.jpg"})
+
+        class MockRespTable:
+            def select(self, *a): return self
+            def eq(self, *a): return self
+            def maybe_single(self): return self
+            def execute(self): return SimpleNamespace(data={"id": response_id, "query_id": query_id, "provider_id": "prov-1", "image_url": "https://cdn.example.com/prod.jpg"})
+
+        def mock_table(name):
+            if name == "queries": return MockQueryTable()
+            return MockRespTable()
+
+        with patch.object(nearfind, "table", side_effect=mock_table), \
+             patch.object(nearfind, "compare_images", return_value=mock_sim_result):
+            res = self.client.get(f"/query/{query_id}/response/{response_id}/similarity")
+            self.assertEqual(res.status_code, 200)
+            data = res.get_json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["data"]["score"], 91.5)
+            self.assertEqual(data["data"]["level"], "High Match")
+            self.assertEqual(data["data"]["verdict"], "High Visual Similarity")
+            self.assertIn("closely match", data["data"]["explanation"])
+
+    def test_response_image_similarity_endpoint_handles_unavailable_state(self):
+        """API endpoint handles unavailable image comparison and returns structured error with explanation."""
+        query_id = "11111111-1111-4111-8111-111111111111"
+        response_id = "22222222-2222-4222-8222-222222222222"
+        seeker_id = "33333333-3333-4333-8333-333333333333"
+
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = seeker_id
+            sess["role"] = "seeker"
+
+        mock_unavail_result = {
+            "success": False,
+            "available": False,
+            "score": None,
+            "level": None,
+            "verdict": "Visual comparison unavailable",
+            "raw_similarity": None,
+            "status": "missing_image",
+            "error": "Missing reference image for similarity comparison.",
+            "explanation": "Visual comparison requires both a reference image and a provider product image.",
+            "disclaimer": DISCLAIMER,
+        }
+
+        class MockQueryTable:
+            def select(self, *a): return self
+            def eq(self, *a): return self
+            def maybe_single(self): return self
+            def execute(self): return SimpleNamespace(data={"id": query_id, "seeker_id": seeker_id, "image_url": None})
+
+        class MockRespTable:
+            def select(self, *a): return self
+            def eq(self, *a): return self
+            def maybe_single(self): return self
+            def execute(self): return SimpleNamespace(data={"id": response_id, "query_id": query_id, "provider_id": "prov-1", "image_url": "https://cdn.example.com/prod.jpg"})
+
+        def mock_table(name):
+            if name == "queries": return MockQueryTable()
+            return MockRespTable()
+
+        with patch.object(nearfind, "table", side_effect=mock_table), \
+             patch.object(nearfind, "compare_images", return_value=mock_unavail_result):
+            res = self.client.get(f"/query/{query_id}/response/{response_id}/similarity")
+            self.assertEqual(res.status_code, 200)
+            data = res.get_json()
+            self.assertTrue(data["success"])
+            self.assertFalse(data["data"]["available"])
+            self.assertEqual(data["data"]["verdict"], "Visual comparison unavailable")
+            self.assertIn("Visual comparison requires", data["data"]["explanation"])
+
+    def test_frontend_template_and_styles_expose_full_visual_match_pipeline(self):
+        """Verifies template has explanation hooks, stylesheet fixes empty box clipping, and script handles states."""
+        root = Path(__file__).resolve().parents[1]
+        template = (root / "templates" / "seeker" / "responses.html").read_text(encoding="utf-8")
+        style = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "seeker-map.js").read_text(encoding="utf-8")
+
+        # Template hooks
+        self.assertIn("data-similarity-box", template)
+        self.assertIn("data-similarity-score", template)
+        self.assertIn("data-similarity-level", template)
+        self.assertIn("data-similarity-explanation", template)
+        self.assertIn("data-detail-similarity-box", template)
+        self.assertIn("data-detail-similarity-explanation", template)
+
+        # CSS fixes display: grid overriding hidden attribute
+        self.assertIn(".similarity-box[hidden]", style)
+        self.assertIn("display: none !important", style)
+
+        # Script handles all states and contains no innerHTML
+        self.assertIn("Visual comparison unavailable", script)
+        self.assertIn("Analyzing visual similarity", script)
+        self.assertIn("fetchResponseSimilarity", script)
+        self.assertNotIn("innerHTML", script)
+
 
 
 if __name__ == "__main__":

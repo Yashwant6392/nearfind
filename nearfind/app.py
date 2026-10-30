@@ -4053,9 +4053,25 @@ def _async_compute_similarity(ref_url, prod_url):
         )
         if sim_res and sim_res.get("available"):
             similarity = {
+                "available": True,
                 "score": sim_res["score"],
                 "level": sim_res["level"],
+                "verdict": sim_res.get("verdict", sim_res["level"]),
+                "explanation": sim_res.get("explanation", ""),
                 "raw_similarity": sim_res["raw_similarity"],
+                "status": "computed",
+                "disclaimer": sim_res.get("disclaimer", DISCLAIMER),
+            }
+        elif sim_res:
+            similarity = {
+                "available": False,
+                "score": None,
+                "level": None,
+                "verdict": sim_res.get("verdict", "Visual comparison unavailable"),
+                "explanation": sim_res.get("explanation") or sim_res.get("error") or "Visual comparison unavailable",
+                "raw_similarity": None,
+                "status": sim_res.get("status", "unavailable"),
+                "error": sim_res.get("error", "Visual comparison unavailable"),
                 "disclaimer": sim_res.get("disclaimer", DISCLAIMER),
             }
         else:
@@ -4064,7 +4080,16 @@ def _async_compute_similarity(ref_url, prod_url):
         return similarity
     except Exception as err:
         app.logger.warning("Background similarity calculation failed: %s", err)
-        _SIMILARITY_RESPONSE_CACHE[cache_key] = None
+        _SIMILARITY_RESPONSE_CACHE[cache_key] = {
+            "available": False,
+            "score": None,
+            "level": None,
+            "verdict": "Visual comparison unavailable",
+            "explanation": f"Visual comparison unavailable: {err}",
+            "status": "error",
+            "error": str(err),
+            "disclaimer": DISCLAIMER,
+        }
         return None
     finally:
         with _SIMILARITY_IN_FLIGHT_LOCK:
@@ -4252,15 +4277,31 @@ def response_image_similarity(query_id, response_id):
     cache_key = (ref_image_url, prod_image_url)
     if cache_key in _SIMILARITY_RESPONSE_CACHE and _SIMILARITY_RESPONSE_CACHE[cache_key]:
         cached = _SIMILARITY_RESPONSE_CACHE[cache_key]
-        return json_response(True, data={
-            "success": True,
-            "available": True,
-            "score": cached.get("score"),
-            "level": cached.get("level"),
-            "raw_similarity": cached.get("raw_similarity"),
-            "status": "computed",
-            "disclaimer": cached.get("disclaimer", DISCLAIMER),
-        })
+        is_avail = cached.get("available") if "available" in cached else (cached.get("score") is not None)
+        if is_avail:
+            return json_response(True, data={
+                "success": True,
+                "available": True,
+                "score": cached.get("score"),
+                "level": cached.get("level"),
+                "verdict": cached.get("verdict", cached.get("level")),
+                "explanation": cached.get("explanation", ""),
+                "raw_similarity": cached.get("raw_similarity"),
+                "status": "computed",
+                "disclaimer": cached.get("disclaimer", DISCLAIMER),
+            })
+        else:
+            return json_response(True, data={
+                "success": False,
+                "available": False,
+                "score": None,
+                "level": None,
+                "verdict": cached.get("verdict", "Visual comparison unavailable"),
+                "explanation": cached.get("explanation", "Visual comparison unavailable"),
+                "status": cached.get("status", "unavailable"),
+                "error": cached.get("error", "Visual comparison unavailable"),
+                "disclaimer": cached.get("disclaimer", DISCLAIMER),
+            })
 
     result = compare_images(
         ref_image_url,
@@ -4270,9 +4311,24 @@ def response_image_similarity(query_id, response_id):
     )
     if result.get("available"):
         _SIMILARITY_RESPONSE_CACHE[cache_key] = {
+            "available": True,
             "score": result.get("score"),
             "level": result.get("level"),
+            "verdict": result.get("verdict", result.get("level")),
+            "explanation": result.get("explanation", ""),
             "raw_similarity": result.get("raw_similarity"),
+            "status": "computed",
+            "disclaimer": result.get("disclaimer", DISCLAIMER),
+        }
+    else:
+        _SIMILARITY_RESPONSE_CACHE[cache_key] = {
+            "available": False,
+            "score": None,
+            "level": None,
+            "verdict": result.get("verdict", "Visual comparison unavailable"),
+            "explanation": result.get("explanation", result.get("error", "Visual comparison unavailable")),
+            "status": result.get("status", "unavailable"),
+            "error": result.get("error", "Visual comparison unavailable"),
             "disclaimer": result.get("disclaimer", DISCLAIMER),
         }
     return json_response(True, data=result)
